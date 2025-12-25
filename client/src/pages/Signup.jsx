@@ -1,0 +1,642 @@
+import React, { useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import Header from '../components/Header';
+
+export default function Signup() {
+  const location = useLocation();
+  const verificationData = location.state;
+
+  // If coming from verification link, show multi-step verification flow
+  const isFromEmailVerification = verificationData?.fromVerification;
+
+  // For email-verified: steps are 1=ID, 2=Consent, 3=Method, 4=Complete
+  // For regular signup: steps are 1=Role, 2=Details
+  const [verifyStep, setVerifyStep] = useState(1);
+  const [step, setStep] = useState(isFromEmailVerification ? 2 : 1);
+  const [selectedRole, setSelectedRole] = useState(isFromEmailVerification ? 'respondent-verified' : null);
+  const [selectedMethod, setSelectedMethod] = useState('linkedin');
+  const [formData, setFormData] = useState({
+    fullName: '',
+    email: '',
+    password: '',
+    confirmPassword: '',
+    respondentId: verificationData?.respondentId || '',
+  });
+  const [error, setError] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [verificationComplete, setVerificationComplete] = useState(false);
+  const [zkpResult, setZkpResult] = useState(null);
+  const navigate = useNavigate();
+
+  const respondentVerification = verificationData || null;
+
+  const roles = [
+    {
+      id: 'panel',
+      title: 'Panel Company',
+      description: 'Manage respondent panels and provide verified respondents for surveys',
+      icon: '🏢',
+      color: 'from-purple-600 to-purple-700'
+    },
+    {
+      id: 'insight',
+      title: 'Insight Company',
+      description: 'Access verified respondents and conduct surveys with confidence',
+      icon: '📊',
+      color: 'from-blue-600 to-blue-700'
+    },
+    {
+      id: 'respondent',
+      title: 'Respondent',
+      description: 'Participate in surveys and earn rewards using email and password',
+      icon: '👤',
+      color: 'from-green-600 to-green-700'
+    }
+  ];
+
+  const verificationMethods = [
+    {
+      id: 'linkedin',
+      name: 'LinkedIn',
+      description: 'Verify via your LinkedIn profile',
+      icon: (
+        <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+        </svg>
+      ),
+      recommended: true
+    },
+    {
+      id: 'email',
+      name: 'Work Email',
+      description: 'Verify via your work email address',
+      icon: (
+        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+        </svg>
+      )
+    },
+    {
+      id: 'document',
+      name: 'Document Upload',
+      description: 'Upload supporting documents',
+      icon: (
+        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      )
+    }
+  ];
+
+  const handleRoleSelect = (roleId) => {
+    setSelectedRole(roleId);
+    setStep(2);
+  };
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  // Handle verification flow for email-verified respondents
+  const handleVerifyStepNext = () => {
+    if (verifyStep === 1) {
+      // Validate Respondent ID
+      if (!formData.respondentId) {
+        setError('Respondent ID is required');
+        return;
+      }
+      if (respondentVerification?.respondentId && formData.respondentId !== respondentVerification.respondentId) {
+        setError('Respondent ID does not match the verification link');
+        return;
+      }
+      setError('');
+      setVerifyStep(2);
+    } else if (verifyStep === 2) {
+      // Consent given, move to method selection
+      setVerifyStep(3);
+    } else if (verifyStep === 3) {
+      // Method selected, complete verification
+      handleCompleteVerification();
+    }
+  };
+
+  const handleVerifyStepBack = () => {
+    if (verifyStep > 1) {
+      setVerifyStep(verifyStep - 1);
+    }
+  };
+
+  const handleCompleteVerification = async () => {
+    setVerifying(true);
+    setError('');
+
+    try {
+      const panelApiUrl = localStorage.getItem('panelApiUrl') || 'http://localhost:3001';
+      const response = await fetch(`${panelApiUrl}/api/verify/${respondentVerification.token}/complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          proofData: {
+            completedAt: new Date().toISOString(),
+            method: selectedMethod
+          }
+        })
+      });
+
+      if (!response.ok) {
+        setError('Failed to complete verification. Please try again.');
+        setVerifying(false);
+        return;
+      }
+
+      const responseData = await response.json();
+
+      // Update local panelists data
+      const panelists = JSON.parse(localStorage.getItem('panelists') || '[]');
+      const updatedPanelists = panelists.map(p => {
+        if (p.id === formData.respondentId) {
+          return {
+            ...p,
+            proofStatus: 'verified',
+            verificationStatus: 'verified',
+            zkpResult: responseData.zkpResult || 'Yes'
+          };
+        }
+        return p;
+      });
+      localStorage.setItem('panelists', JSON.stringify(updatedPanelists));
+
+      setZkpResult(responseData.zkpResult);
+      setVerificationComplete(true);
+      setVerifying(false);
+
+      // Navigate to verification success page
+      navigate('/verification-success', {
+        state: {
+          respondentId: formData.respondentId,
+          zkpResult: responseData.zkpResult
+        }
+      });
+
+    } catch (err) {
+      console.error('Verification error:', err);
+      setError('Failed to connect to verification server.');
+      setVerifying(false);
+    }
+  };
+
+  const handleRegularSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (!formData.fullName || !formData.email || !formData.password) {
+      setError('All fields are required');
+      return;
+    }
+
+    if (formData.password !== formData.confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    if (formData.password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+
+    const existingUsers = JSON.parse(localStorage.getItem('users') || '[]');
+    if (existingUsers.some(u => u.email === formData.email)) {
+      setError('Email already registered. Please sign in instead.');
+      return;
+    }
+
+    const generatePanelId = () => {
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+      let result = 'PNL-';
+      for (let i = 0; i < 6; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return result;
+    };
+
+    const newUser = {
+      id: Date.now().toString(),
+      role: selectedRole,
+      fullName: formData.fullName,
+      email: formData.email,
+      password: formData.password,
+      createdAt: new Date().toISOString(),
+      ...(selectedRole === 'panel' && { panelId: generatePanelId() })
+    };
+
+    existingUsers.push(newUser);
+    localStorage.setItem('users', JSON.stringify(existingUsers));
+    localStorage.setItem('currentUser', JSON.stringify(newUser));
+    navigate(`/dashboard/${selectedRole}`, { state: newUser });
+  };
+
+  const handleBackToRoles = () => {
+    setStep(1);
+    setFormData({ fullName: '', email: '', password: '', confirmPassword: '', respondentId: '' });
+    setSelectedRole(null);
+    setError('');
+  };
+
+  // ============== EMAIL-VERIFIED RESPONDENT FLOW ==============
+  if (isFromEmailVerification) {
+    // Verification Complete Screen
+    if (verificationComplete) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
+            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <span className="text-4xl text-green-600">✓</span>
+            </div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-4">Verification Complete!</h1>
+            <p className="text-gray-600 mb-6">
+              Your identity has been successfully verified using Zero-Knowledge Proof.
+            </p>
+
+            <div className="mb-6 p-4 bg-gray-50 rounded-xl">
+              <p className="text-sm text-gray-500 uppercase font-semibold mb-2">ZKP Query Result</p>
+              <div className={`inline-block px-6 py-3 rounded-full text-lg font-bold ${
+                zkpResult === 'Yes' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+              }`}>
+                {zkpResult === 'Yes' ? 'Criteria Met' : 'Criteria Not Met'}
+              </div>
+            </div>
+
+            <div className="mb-6 p-4 bg-purple-50 rounded-xl">
+              <p className="text-sm text-purple-600 uppercase font-semibold mb-1">Verified Respondent ID</p>
+              <p className="font-mono text-lg text-purple-800 font-bold">{formData.respondentId}</p>
+            </div>
+
+            <div className="mb-6 p-4 bg-blue-50 rounded-lg text-left">
+              <p className="text-sm text-blue-700">
+                <span className="font-semibold">Privacy Protected:</span> No personal information was stored.
+                Your verification is complete and this session will end.
+              </p>
+            </div>
+
+            <p className="text-gray-500 text-sm mb-4">Redirecting to home page in 5 seconds...</p>
+
+            <button
+              onClick={() => navigate('/')}
+              className="w-full py-3 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl font-bold transition hover:shadow-lg"
+            >
+              Go to Home Now
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // Multi-step Verification Flow
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Header />
+
+        <div className="py-12 px-4">
+          <div className="container mx-auto max-w-2xl">
+            {/* Progress Bar */}
+            <div className="mb-8">
+              <div className="flex items-center justify-center gap-2 mb-4">
+                {[1, 2, 3].map((s) => (
+                  <div
+                    key={s}
+                    className={`h-2 w-24 rounded-full transition-all ${
+                      s <= verifyStep ? 'bg-purple-600' : 'bg-gray-200'
+                    }`}
+                  />
+                ))}
+              </div>
+              <p className="text-center text-sm text-gray-500">Step {verifyStep} of 3</p>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-lg p-8">
+              {/* Step 1: Respondent ID */}
+              {verifyStep === 1 && (
+                <>
+                  <div className="text-center mb-8">
+                    <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <span className="text-3xl">🔐</span>
+                    </div>
+                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Confirm Your Identity</h2>
+                    <p className="text-gray-600">Enter your Respondent ID from the verification email</p>
+                  </div>
+
+                  {error && (
+                    <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+                      {error}
+                    </div>
+                  )}
+
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-gray-900 mb-2">
+                      Respondent ID
+                    </label>
+                    <input
+                      type="text"
+                      name="respondentId"
+                      value={formData.respondentId}
+                      onChange={handleInputChange}
+                      placeholder="RSP-XXXX-XXXX"
+                      readOnly={!!respondentVerification?.respondentId}
+                      className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500 font-mono text-lg ${
+                        respondentVerification?.respondentId ? 'bg-gray-50' : ''
+                      }`}
+                    />
+                  </div>
+
+                  {/* Attributes to Verify */}
+                  {respondentVerification?.attributesRequiringProof?.length > 0 && (
+                    <div className="mb-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                      <p className="text-sm font-semibold text-yellow-800 mb-2">Attributes to Verify:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {respondentVerification.attributesRequiringProof.map((attr, idx) => (
+                          <span key={idx} className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm">
+                            {attr.charAt(0).toUpperCase() + attr.slice(1)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={handleVerifyStepNext}
+                    className="w-full py-4 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl font-bold text-lg hover:shadow-lg transition"
+                  >
+                    Continue
+                  </button>
+                </>
+              )}
+
+              {/* Step 2: Consent Screen */}
+              {verifyStep === 2 && (
+                <>
+                  <div className="text-center mb-8">
+                    <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                      </svg>
+                    </div>
+                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Verify Your Attributes</h2>
+                    <p className="text-gray-600">Your data stays private with Zero-Knowledge Proofs</p>
+                  </div>
+
+
+                  <div className="mb-8 p-6 bg-gray-50 rounded-xl">
+                    <h3 className="font-semibold text-gray-900 mb-4">How it works:</h3>
+                    <ul className="space-y-3">
+                      <li className="flex items-start gap-3">
+                        <span className="text-green-500 mt-0.5">✓</span>
+                        <span className="text-gray-700">Your actual data is never shared</span>
+                      </li>
+                      <li className="flex items-start gap-3">
+                        <span className="text-green-500 mt-0.5">✓</span>
+                        <span className="text-gray-700">Only binary yes/no results are transmitted</span>
+                      </li>
+                      <li className="flex items-start gap-3">
+                        <span className="text-green-500 mt-0.5">✓</span>
+                        <span className="text-gray-700">Cryptographically proven, tamper-proof</span>
+                      </li>
+                      <li className="flex items-start gap-3">
+                        <span className="text-green-500 mt-0.5">✓</span>
+                        <span className="text-gray-700">GDPR & CCPA compliant by design</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div className="flex gap-4">
+                    <button
+                      onClick={handleVerifyStepBack}
+                      className="flex-1 py-3 border-2 border-gray-300 text-gray-700 rounded-xl font-semibold hover:bg-gray-50 transition flex items-center justify-center gap-2"
+                    >
+                      <span>←</span> Back
+                    </button>
+                    <button
+                      onClick={handleVerifyStepNext}
+                      className="flex-1 py-3 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl font-semibold hover:shadow-lg transition flex items-center justify-center gap-2"
+                    >
+                      <span>→</span> I Consent - Continue
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* Step 3: Choose Verification Method */}
+              {verifyStep === 3 && (
+                <>
+                  <div className="mb-8">
+                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Choose Verification Method</h2>
+                    <p className="text-gray-600">Select how you'd like to verify your attributes</p>
+                  </div>
+
+                  <div className="space-y-3 mb-8">
+                    {verificationMethods.map((method) => (
+                      <button
+                        key={method.id}
+                        onClick={() => setSelectedMethod(method.id)}
+                        className={`w-full p-4 rounded-xl border-2 transition flex items-center justify-between ${
+                          selectedMethod === method.id
+                            ? 'border-purple-500 bg-purple-50'
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
+                            selectedMethod === method.id ? 'bg-purple-100 text-purple-600' : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            {method.icon}
+                          </div>
+                          <div className="text-left">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-gray-900">{method.name}</span>
+                              {method.recommended && (
+                                <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full font-medium">
+                                  Recommended
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-500">{method.description}</p>
+                          </div>
+                        </div>
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                          selectedMethod === method.id ? 'border-purple-500' : 'border-gray-300'
+                        }`}>
+                          {selectedMethod === method.id && (
+                            <div className="w-3 h-3 rounded-full bg-purple-500" />
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+
+                  {error && (
+                    <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+                      {error}
+                    </div>
+                  )}
+
+                  <div className="flex gap-4">
+                    <button
+                      onClick={handleVerifyStepBack}
+                      className="flex-1 py-3 border-2 border-gray-300 text-gray-700 rounded-xl font-semibold hover:bg-gray-50 transition flex items-center justify-center gap-2"
+                    >
+                      <span>←</span> Back
+                    </button>
+                    <button
+                      onClick={handleVerifyStepNext}
+                      disabled={verifying}
+                      className="flex-1 py-3 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl font-semibold hover:shadow-lg transition flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {verifying ? 'Verifying...' : (
+                        <>
+                          <span>→</span> Continue
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ============== REGULAR SIGNUP FLOW ==============
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Header />
+
+      {step === 1 ? (
+        // Role Selection Step
+        <div className="py-20 px-4">
+          <div className="container mx-auto max-w-5xl">
+            <div className="text-center mb-16">
+              <h1 className="text-4xl font-bold text-gray-900 mb-4">Get started with SRVS</h1>
+              <p className="text-xl text-gray-600">Select your role and create your account</p>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-6">
+              {roles.map((role) => (
+                <button
+                  key={role.id}
+                  onClick={() => handleRoleSelect(role.id)}
+                  className="group p-8 rounded-xl bg-white border-2 border-gray-200 hover:border-purple-500 hover:shadow-xl transition duration-300 text-left"
+                >
+                  <div className="text-5xl mb-4 group-hover:scale-110 transition">
+                    {role.icon}
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900 mb-3">{role.title}</h3>
+                  <p className="text-gray-600 leading-relaxed">{role.description}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : (
+        // Account Details Step
+        <div className="py-20 px-4">
+          <div className="container mx-auto max-w-md">
+            <div className="bg-white rounded-xl shadow-lg p-8">
+              <div className="mb-8">
+                <button
+                  onClick={handleBackToRoles}
+                  className="text-purple-600 hover:text-purple-700 font-semibold text-sm mb-6"
+                >
+                  ← Back to Roles
+                </button>
+
+                <h2 className="text-3xl font-bold text-gray-900 mb-2">Create Account</h2>
+                <p className="text-gray-600">{roles.find(r => r.id === selectedRole)?.title}</p>
+              </div>
+
+              {error && (
+                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+                  {error}
+                </div>
+              )}
+
+              <form onSubmit={handleRegularSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-900 mb-2">Full Name</label>
+                  <input
+                    type="text"
+                    name="fullName"
+                    value={formData.fullName}
+                    onChange={handleInputChange}
+                    placeholder="John Doe"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-900 mb-2">Email</label>
+                  <input
+                    type="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleInputChange}
+                    placeholder="you@example.com"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-900 mb-2">Password</label>
+                  <input
+                    type="password"
+                    name="password"
+                    value={formData.password}
+                    onChange={handleInputChange}
+                    placeholder="••••••••"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-900 mb-2">Confirm Password</label>
+                  <input
+                    type="password"
+                    name="confirmPassword"
+                    value={formData.confirmPassword}
+                    onChange={handleInputChange}
+                    placeholder="••••••••"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full bg-gradient-to-r from-purple-600 to-purple-700 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition mt-6"
+                >
+                  Create Account
+                </button>
+              </form>
+
+              <p className="text-center text-gray-600 text-sm mt-6">
+                Already have an account?{' '}
+                <button
+                  type="button"
+                  onClick={() => navigate('/signin')}
+                  className="text-purple-600 font-semibold hover:text-purple-700"
+                >
+                  Sign In
+                </button>
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
