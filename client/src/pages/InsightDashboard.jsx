@@ -1,10 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import * as XLSX from 'xlsx';
 import APISettings from '../components/APISettings';
+import { useAutoSync } from '../context/AutoSyncContext';
 
 export default function InsightDashboard() {
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
+
+  // Use global auto-sync context
+  const {
+    insightAutoSyncEnabled,
+    setInsightAutoSyncEnabled,
+    insightCountdown,
+    insightSyncing,
+    insightLastSyncTime,
+    setInsightLastSyncTime,
+    syncInsightData
+  } = useAutoSync();
+
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [apiKey, setApiKey] = useState('');
   const [panelApiUrl, setPanelApiUrl] = useState('');
@@ -13,6 +27,9 @@ export default function InsightDashboard() {
   const [isAPISettingsOpen, setIsAPISettingsOpen] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState(null);
+  const [excelUploading, setExcelUploading] = useState(false);
+  const [excelStatus, setExcelStatus] = useState('');
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     // Load API settings from localStorage
@@ -37,6 +54,13 @@ export default function InsightDashboard() {
     }
   }, []);
 
+  // Sync lastSyncTime with context
+  useEffect(() => {
+    if (insightLastSyncTime) {
+      setLastSyncTime(insightLastSyncTime);
+    }
+  }, [insightLastSyncTime]);
+
   const checkConnection = async (url) => {
     try {
       const response = await fetch(`${url}/health`);
@@ -59,19 +83,19 @@ export default function InsightDashboard() {
     navigate('/');
   };
 
-  const handleSyncData = async () => {
+  const handleSyncData = async (silent = false) => {
     if (!apiKey) {
-      setSyncStatus('Please configure API key first');
+      if (!silent) setSyncStatus('Please configure API key first');
       return;
     }
 
     if (!panelApiUrl) {
-      setSyncStatus('Please configure Panel API URL first');
+      if (!silent) setSyncStatus('Please configure Panel API URL first');
       return;
     }
 
     setSyncing(true);
-    setSyncStatus('Connecting to Panel API...');
+    if (!silent) setSyncStatus('Connecting to Panel API...');
 
     try {
       const response = await fetch(`${panelApiUrl}/api/sync`, {
@@ -91,6 +115,7 @@ export default function InsightDashboard() {
         const data = await response.json();
         const now = new Date();
         setLastSyncTime(now);
+        setInsightLastSyncTime(now); // Update context
         localStorage.setItem('insightLastSyncTime', now.toISOString());
         setConnectionStatus('connected');
 
@@ -118,19 +143,23 @@ export default function InsightDashboard() {
           localStorage.setItem('insightPanelists', JSON.stringify(allPanelists));
         }
 
-        setSyncStatus(`Synced ${data.dataPoints?.respondentsAdded || 0} respondents from ${panelApiUrl}`);
+        if (!silent) {
+          setSyncStatus(`Synced ${data.dataPoints?.respondentsAdded || 0} respondents from ${panelApiUrl}`);
+          setTimeout(() => setSyncStatus(''), 4000);
+        }
         setSyncing(false);
-        setTimeout(() => setSyncStatus(''), 4000);
       } else {
         setConnectionStatus('disconnected');
-        setSyncStatus('Sync failed. Check API URL and key.');
+        if (!silent) setSyncStatus('Sync failed. Check API URL and key.');
         setSyncing(false);
       }
     } catch (error) {
       setConnectionStatus('disconnected');
-      setSyncStatus(`Cannot connect to ${panelApiUrl}. Is the server running?`);
+      if (!silent) {
+        setSyncStatus(`Cannot connect to ${panelApiUrl}. Is the server running?`);
+        setTimeout(() => setSyncStatus(''), 5000);
+      }
       setSyncing(false);
-      setTimeout(() => setSyncStatus(''), 5000);
     }
   };
 
@@ -147,6 +176,166 @@ export default function InsightDashboard() {
     } else {
       setApiKey(settings);
       localStorage.setItem('insightApiKey', settings);
+    }
+  };
+
+  // Simple hash function for client-side hashing (for demo purposes)
+  const simpleHash = (str) => {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    return Math.abs(hash).toString(16).padStart(16, '0');
+  };
+
+  // Generate unique ID for respondent
+  const generateRespondentId = (prefix = 'EXCEL') => {
+    const timestamp = Date.now();
+    const random = Math.random().toString(36).substring(2, 10);
+    return `RSP-${prefix}-${timestamp}-${random}`;
+  };
+
+  // Download Excel template
+  const downloadExcelTemplate = () => {
+    const templateData = [
+      {
+        name: 'John Doe',
+        email: 'john.doe@example.com',
+        age: 28,
+        income: 55000,
+        location: 'New York',
+        occupation: 'Engineer',
+        education: 'Bachelor',
+        zkpQuery: "age >= 25 AND occupation = 'Engineer'"
+      },
+      {
+        name: 'Jane Smith',
+        email: 'jane.smith@example.com',
+        age: 35,
+        income: 72000,
+        location: 'Chicago',
+        occupation: 'Manager',
+        education: 'Master',
+        zkpQuery: "income > 60000 AND education = 'Master'"
+      }
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet(templateData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Respondents');
+
+    // Set column widths
+    worksheet['!cols'] = [
+      { wch: 20 }, // name
+      { wch: 30 }, // email
+      { wch: 8 },  // age
+      { wch: 12 }, // income
+      { wch: 15 }, // location
+      { wch: 15 }, // occupation
+      { wch: 15 }, // education
+      { wch: 45 }  // zkpQuery
+    ];
+
+    XLSX.writeFile(workbook, 'respondent_template.xlsx');
+  };
+
+  // Handle Excel file upload
+  const handleExcelUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    setExcelUploading(true);
+    setExcelStatus('Processing Excel file...');
+
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+      if (jsonData.length === 0) {
+        setExcelStatus('Error: Excel file is empty');
+        setExcelUploading(false);
+        return;
+      }
+
+      // Validate required columns
+      const requiredColumns = ['name', 'email'];
+      const firstRow = jsonData[0];
+      const missingColumns = requiredColumns.filter(col => !(col in firstRow));
+
+      if (missingColumns.length > 0) {
+        setExcelStatus(`Error: Missing required columns: ${missingColumns.join(', ')}`);
+        setExcelUploading(false);
+        return;
+      }
+
+      // Process each row and create ZKP-compliant respondent data
+      const insightId = user.id || 'INSIGHT';
+      const processedRespondents = jsonData.map(row => {
+        const respondentId = generateRespondentId(insightId);
+        const salt = Math.random().toString(36).substring(2);
+
+        // Create hashed data from row
+        const hashedData = simpleHash(JSON.stringify({ ...row, salt }));
+
+        // Determine attributes requiring proof
+        const allAttributes = ['age', 'income', 'location', 'occupation', 'education'];
+        const availableAttributes = allAttributes.filter(attr => row[attr] !== undefined);
+        const attributeCount = Math.min(Math.floor(Math.random() * 3) + 1, availableAttributes.length);
+        const shuffled = [...availableAttributes].sort(() => 0.5 - Math.random());
+        const attributesRequiringProof = shuffled.slice(0, attributeCount);
+
+        // Create attribute hashes
+        const attributeHashes = {};
+        allAttributes.forEach(attr => {
+          if (row[attr] !== undefined) {
+            attributeHashes[attr] = simpleHash(`${attr}:${row[attr]}:${salt}`);
+          }
+        });
+
+        return {
+          id: respondentId,
+          hashedData,
+          proofStatus: 'pending',
+          verificationStatus: 'unverified',
+          attributesRequiringProof,
+          attributeHashes,
+          syncedAt: new Date().toISOString(),
+          emailSent: false,
+          zkpQuery: row.zkpQuery || "age >= 18",
+          zkpResult: 'pending',
+          source: 'excel'
+        };
+      });
+
+      // Merge with existing panelists (using insight-specific storage key)
+      const existingPanelists = JSON.parse(localStorage.getItem('insightPanelists') || '[]');
+      const existingIds = new Set(existingPanelists.map(p => p.id));
+      const uniqueNewPanelists = processedRespondents.filter(p => !existingIds.has(p.id));
+      const allPanelists = [...existingPanelists, ...uniqueNewPanelists];
+
+      localStorage.setItem('insightPanelists', JSON.stringify(allPanelists));
+
+      // Update last sync time
+      const now = new Date();
+      setLastSyncTime(now);
+      localStorage.setItem('insightLastSyncTime', now.toISOString());
+
+      setExcelStatus(`Successfully imported ${processedRespondents.length} respondents from Excel`);
+      setTimeout(() => setExcelStatus(''), 4000);
+    } catch (error) {
+      console.error('Excel processing error:', error);
+      setExcelStatus(`Error processing Excel file: ${error.message}`);
+    } finally {
+      setExcelUploading(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -280,8 +469,36 @@ export default function InsightDashboard() {
               <p className="text-gray-600 mt-1">Welcome back, {user.fullName || 'User'}!</p>
             </div>
             <div className="flex items-center gap-4">
+              {/* Auto-sync toggle */}
               <button
-                onClick={handleSyncData}
+                onClick={() => {
+                  if (apiKey && panelApiUrl) {
+                    setInsightAutoSyncEnabled(!insightAutoSyncEnabled);
+                  }
+                }}
+                disabled={!apiKey || !panelApiUrl}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg transition font-medium text-sm ${
+                  insightAutoSyncEnabled
+                    ? 'bg-blue-100 text-blue-700 border border-blue-300'
+                    : 'bg-gray-100 text-gray-600 border border-gray-200'
+                } ${!apiKey || !panelApiUrl ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}
+              >
+                <div className={`w-8 h-5 rounded-full relative transition-colors ${
+                  insightAutoSyncEnabled ? 'bg-blue-600' : 'bg-gray-300'
+                }`}>
+                  <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                    insightAutoSyncEnabled ? 'translate-x-3.5' : 'translate-x-0.5'
+                  }`}></div>
+                </div>
+                <span>Auto</span>
+                {insightAutoSyncEnabled && apiKey && panelApiUrl && (
+                  <span className="text-xs bg-blue-200 text-blue-800 px-2 py-0.5 rounded-full font-semibold">
+                    {insightCountdown}s
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => handleSyncData(false)}
                 disabled={syncing}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold disabled:opacity-50 transition"
               >
@@ -367,7 +584,7 @@ export default function InsightDashboard() {
 
             {/* API Integration */}
             <div className="bg-white rounded-lg p-6 border border-gray-200">
-              <h2 className="text-lg font-bold text-gray-900 mb-4">API Integration</h2>
+              <h2 className="text-lg font-bold text-gray-900 mb-4">Data Sync</h2>
 
               {/* Connection Status */}
               <div className="flex items-center gap-3 mb-4">
@@ -386,28 +603,99 @@ export default function InsightDashboard() {
                 </div>
               </div>
 
-              {/* Panel API URL */}
+              {/* Sync Method Tabs */}
               <div className="mb-4">
-                <label className="text-xs font-semibold text-gray-500 uppercase">Panel API URL</label>
-                <div className="mt-1 p-2 bg-gray-50 rounded text-xs font-mono text-gray-700 truncate border border-gray-200">
-                  {panelApiUrl || 'Not configured'}
+                <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Sync Method</p>
+
+                {/* API Integration Section */}
+                <div className="border border-gray-200 rounded-lg p-3 mb-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-lg">🔌</span>
+                    <span className="font-semibold text-gray-900 text-sm">API Integration</span>
+                  </div>
+
+                  {/* Panel API URL */}
+                  <div className="mb-2">
+                    <label className="text-xs text-gray-500">Panel API URL</label>
+                    <div className="p-2 bg-gray-50 rounded text-xs font-mono text-gray-700 truncate border border-gray-200">
+                      {panelApiUrl || 'Not configured'}
+                    </div>
+                  </div>
+
+                  {/* API Key */}
+                  <div className="mb-3">
+                    <label className="text-xs text-gray-500">API Key</label>
+                    <div className="p-2 bg-gray-50 rounded text-xs font-mono text-gray-600 truncate border border-gray-200">
+                      {apiKey ? apiKey.substring(0, 12) + '...' : 'Not configured'}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setIsAPISettingsOpen(true)}
+                    className="w-full px-3 py-2 border border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 font-semibold transition text-sm"
+                  >
+                    {panelApiUrl ? 'Update Settings' : 'Configure API'}
+                  </button>
+                </div>
+
+                {/* Excel Upload Section */}
+                <div className="border border-gray-200 rounded-lg p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-lg">📊</span>
+                    <span className="font-semibold text-gray-900 text-sm">Excel Upload</span>
+                  </div>
+
+                  <p className="text-xs text-gray-500 mb-3">
+                    Upload an Excel file with respondent data in the same format as the API.
+                  </p>
+
+                  {/* Hidden file input */}
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleExcelUpload}
+                    accept=".xlsx,.xls"
+                    className="hidden"
+                  />
+
+                  {/* Upload button */}
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={excelUploading}
+                    className="w-full px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold transition text-sm flex items-center justify-center gap-2 disabled:opacity-50 mb-2"
+                  >
+                    {excelUploading ? (
+                      <>
+                        <span className="animate-spin">⟳</span>
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <span>📤</span>
+                        Upload Excel File
+                      </>
+                    )}
+                  </button>
+
+                  {/* Download template button */}
+                  <button
+                    onClick={downloadExcelTemplate}
+                    className="w-full px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition text-sm flex items-center justify-center gap-2"
+                  >
+                    <span>📥</span>
+                    Download Template
+                  </button>
+
+                  {/* Excel status message */}
+                  {excelStatus && (
+                    <p className={`mt-2 text-xs font-medium ${
+                      excelStatus.includes('Error') ? 'text-red-600' : 'text-green-600'
+                    }`}>
+                      {excelStatus}
+                    </p>
+                  )}
                 </div>
               </div>
-
-              {/* API Key */}
-              <div className="mb-4">
-                <label className="text-xs font-semibold text-gray-500 uppercase">API Key</label>
-                <div className="mt-1 p-2 bg-gray-50 rounded text-xs font-mono text-gray-600 truncate border border-gray-200">
-                  {apiKey ? apiKey.substring(0, 12) + '...' : 'Not configured'}
-                </div>
-              </div>
-
-              <button
-                onClick={() => setIsAPISettingsOpen(true)}
-                className="w-full px-4 py-2 border border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 font-semibold transition"
-              >
-                {panelApiUrl ? 'Update Settings' : 'Configure API'}
-              </button>
             </div>
           </div>
         </div>

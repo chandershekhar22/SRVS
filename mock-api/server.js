@@ -75,6 +75,10 @@ const getRandomQuery = () => {
   return zkpQueryTemplates[Math.floor(Math.random() * zkpQueryTemplates.length)];
 };
 
+// Define attribute categories for verification method recommendations
+const DOCUMENT_ATTRIBUTES = ['age', 'gender', 'income', 'location', 'education'];
+const LINKEDIN_ATTRIBUTES = ['job_title', 'industry', 'company_size', 'occupation', 'seniority', 'department'];
+
 // Generate initial mock data on startup
 // panelId ensures unique respondent IDs across different panel companies
 const generateMockRespondents = (count = 20, panelId = 'DEFAULT') => {
@@ -83,7 +87,12 @@ const generateMockRespondents = (count = 20, panelId = 'DEFAULT') => {
                  'Jack White', 'Karen Black', 'Leo Green', 'Mia Clark', 'Noah Adams'];
   const domains = ['gmail.com', 'yahoo.com', 'outlook.com', 'company.com'];
   const locations = ['New York', 'Los Angeles', 'Chicago', 'Houston', 'Phoenix', 'San Diego'];
-  const occupations = ['Engineer', 'Teacher', 'Doctor', 'Designer', 'Manager', 'Analyst'];
+  const genders = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
+  const jobTitles = ['Software Engineer', 'Product Manager', 'Data Analyst', 'Marketing Director', 'Sales Manager', 'HR Specialist', 'Finance Manager', 'Operations Lead'];
+  const industries = ['Technology', 'Healthcare', 'Finance', 'Retail', 'Manufacturing', 'Education', 'Media', 'Consulting'];
+  const companySizes = ['1-10', '11-50', '51-200', '201-500', '501-1000', '1000+'];
+  const seniorities = ['Entry', 'Mid', 'Senior', 'Lead', 'Manager', 'Director', 'VP', 'C-Level'];
+  const departments = ['Engineering', 'Product', 'Marketing', 'Sales', 'HR', 'Finance', 'Operations', 'Legal'];
   const educations = ['High School', 'Bachelor', 'Master', 'PhD'];
 
   const respondents = [];
@@ -97,9 +106,14 @@ const generateMockRespondents = (count = 20, panelId = 'DEFAULT') => {
       name,
       email,
       age: Math.floor(Math.random() * 40) + 20,
+      gender: genders[Math.floor(Math.random() * genders.length)],
       income: Math.floor(Math.random() * 150000) + 30000,
       location: locations[Math.floor(Math.random() * locations.length)],
-      occupation: occupations[Math.floor(Math.random() * occupations.length)],
+      job_title: jobTitles[Math.floor(Math.random() * jobTitles.length)],
+      industry: industries[Math.floor(Math.random() * industries.length)],
+      company_size: companySizes[Math.floor(Math.random() * companySizes.length)],
+      seniority: seniorities[Math.floor(Math.random() * seniorities.length)],
+      department: departments[Math.floor(Math.random() * departments.length)],
       education: educations[Math.floor(Math.random() * educations.length)]
     };
 
@@ -131,9 +145,14 @@ const generateMockRespondents = (count = 20, panelId = 'DEFAULT') => {
       zkpResult: 'pending',
       attributeHashes: {
         age: crypto.createHash('sha256').update(`age:${actualData.age}:${salt}`).digest('hex'),
+        gender: crypto.createHash('sha256').update(`gender:${actualData.gender}:${salt}`).digest('hex'),
         income: crypto.createHash('sha256').update(`income:${actualData.income}:${salt}`).digest('hex'),
         location: crypto.createHash('sha256').update(`location:${actualData.location}:${salt}`).digest('hex'),
-        occupation: crypto.createHash('sha256').update(`occupation:${actualData.occupation}:${salt}`).digest('hex'),
+        job_title: crypto.createHash('sha256').update(`job_title:${actualData.job_title}:${salt}`).digest('hex'),
+        industry: crypto.createHash('sha256').update(`industry:${actualData.industry}:${salt}`).digest('hex'),
+        company_size: crypto.createHash('sha256').update(`company_size:${actualData.company_size}:${salt}`).digest('hex'),
+        seniority: crypto.createHash('sha256').update(`seniority:${actualData.seniority}:${salt}`).digest('hex'),
+        department: crypto.createHash('sha256').update(`department:${actualData.department}:${salt}`).digest('hex'),
         education: crypto.createHash('sha256').update(`education:${actualData.education}:${salt}`).digest('hex')
       },
       createdAt: new Date().toISOString()
@@ -171,6 +190,9 @@ const addTestRespondent = () => {
     zkpQueryConditions: testZkpQuery.conditions,
     zkpQueryLogic: testZkpQuery.logic,
     zkpResult: 'pending',
+    // Add default attributes for verification
+    attributesRequiringProof: ['age', 'occupation', 'income', 'education'],
+    recommendedVerificationMethods: ['linkedin', 'document'],
     attributeHashes: {
       age: crypto.createHash('sha256').update(`age:${testData.age}:${salt}`).digest('hex'),
       income: crypto.createHash('sha256').update(`income:${testData.income}:${salt}`).digest('hex'),
@@ -261,6 +283,9 @@ app.post('/api/sync', (req, res) => {
     zkpQueryConditions: testSyncQuery.conditions,
     zkpQueryLogic: testSyncQuery.logic,
     zkpResult: 'pending',
+    // Add default attributes for verification
+    attributesRequiringProof: ['age', 'income', 'occupation', 'education'],
+    recommendedVerificationMethods: ['linkedin', 'document'],
     attributeHashes: {
       age: crypto.createHash('sha256').update(`age:${testEmailData.age}:${salt}`).digest('hex'),
       income: crypto.createHash('sha256').update(`income:${testEmailData.income}:${salt}`).digest('hex'),
@@ -280,17 +305,42 @@ app.post('/api/sync', (req, res) => {
   mockRespondents = [...mockRespondents, ...newRespondents];
 
   // Randomly select attributes requiring proof for each respondent
-  const attributes = ['age', 'income', 'location', 'occupation', 'education'];
+  const allAttributes = ['age', 'gender', 'income', 'location', 'job_title', 'industry', 'company_size', 'seniority', 'department', 'education'];
+
+  // Function to determine recommended verification methods based on attributes
+  const getRecommendedMethods = (attrs) => {
+    const hasDocumentAttrs = attrs.some(a => DOCUMENT_ATTRIBUTES.includes(a));
+    const hasLinkedInAttrs = attrs.some(a => LINKEDIN_ATTRIBUTES.includes(a));
+
+    if (hasDocumentAttrs && hasLinkedInAttrs) {
+      return ['linkedin', 'document'];
+    } else if (hasLinkedInAttrs) {
+      return ['linkedin'];
+    } else if (hasDocumentAttrs) {
+      return ['document'];
+    }
+    return ['linkedin']; // Default
+  };
 
   const zkpRespondents = newRespondents.map(r => {
-    const attrCount = Math.floor(Math.random() * 3) + 1;
-    const shuffled = [...attributes].sort(() => 0.5 - Math.random());
+    const attrCount = Math.floor(Math.random() * 4) + 2; // 2-5 attributes
+    const shuffled = [...allAttributes].sort(() => 0.5 - Math.random());
+    const selectedAttributes = shuffled.slice(0, attrCount);
+    const recommendedMethods = getRecommendedMethods(selectedAttributes);
+
+    // Store attributes in the mockRespondents array so they persist for verification
+    const respondentInDb = mockRespondents.find(resp => resp.id === r.id);
+    if (respondentInDb) {
+      respondentInDb.attributesRequiringProof = selectedAttributes;
+      respondentInDb.recommendedVerificationMethods = recommendedMethods;
+    }
 
     return {
       id: r.id,
       hashedData: r.hashedData,
       proofStatus: 'pending',
-      attributesRequiringProof: shuffled.slice(0, attrCount),
+      attributesRequiringProof: selectedAttributes,
+      recommendedVerificationMethods: recommendedMethods,
       attributeHashes: r.attributeHashes,
       // Include ZKP Query and Result
       zkpQuery: r.zkpQuery,
@@ -561,12 +611,25 @@ app.post('/api/email/send-bulk', async (req, res) => {
       auth: {
         user: smtpUser,
         pass: smtpPass
-      }
+      },
+      // Connection pool settings for better reliability
+      pool: true,
+      maxConnections: 5,
+      maxMessages: 100,
+      // Timeout settings
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 30000
     });
 
     // Verify the connection
     await panelTransporter.verify();
     console.log(`[EMAIL] SMTP verified for panel email: ${smtpUser}`);
+
+    // Add a small delay to let the SMTP connection fully establish
+    // This fixes the issue where first-time emails fail silently
+    await new Promise(resolve => setTimeout(resolve, 500));
+    console.log(`[EMAIL] SMTP connection ready for ${smtpUser}`);
   } catch (error) {
     console.error(`[EMAIL] SMTP verification failed for ${smtpUser}:`, error.message);
     return res.status(400).json({
@@ -722,12 +785,27 @@ app.get('/api/verify/:token', (req, res) => {
   // Return respondent info for verification page
   const respondent = mockRespondents.find(r => r.id === tokenData.respondentId);
 
+  // Calculate recommended verification methods based on attributes
+  const attrs = respondent?.attributesRequiringProof || [];
+  const hasDocumentAttrs = attrs.some(a => DOCUMENT_ATTRIBUTES.includes(a));
+  const hasLinkedInAttrs = attrs.some(a => LINKEDIN_ATTRIBUTES.includes(a));
+
+  let recommendedMethods = ['linkedin'];
+  if (hasDocumentAttrs && hasLinkedInAttrs) {
+    recommendedMethods = ['linkedin', 'document'];
+  } else if (hasLinkedInAttrs) {
+    recommendedMethods = ['linkedin'];
+  } else if (hasDocumentAttrs) {
+    recommendedMethods = ['document'];
+  }
+
   res.json({
     valid: true,
     respondentId: tokenData.respondentId,
     email: tokenData.email,
     name: tokenData.name,
-    attributesRequiringProof: respondent?.attributesRequiringProof || [],
+    attributesRequiringProof: attrs,
+    recommendedVerificationMethods: recommendedMethods,
     zkpQuery: respondent?.zkpQuery || null,
     message: 'Token is valid. Please complete your verification.'
   });

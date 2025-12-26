@@ -1,6 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+// Attribute categories for verification method recommendations
+const DOCUMENT_ATTRIBUTES = ['age', 'gender', 'income', 'location', 'education'];
+const LINKEDIN_ATTRIBUTES = ['job_title', 'industry', 'company_size', 'occupation', 'seniority', 'department'];
+
+// Function to get recommended verification methods based on attributes
+const getRecommendedMethods = (attrs) => {
+  if (!attrs || attrs.length === 0) return ['linkedin'];
+
+  const hasDocumentAttrs = attrs.some(a => DOCUMENT_ATTRIBUTES.includes(a.toLowerCase().replace(' ', '_')));
+  const hasLinkedInAttrs = attrs.some(a => LINKEDIN_ATTRIBUTES.includes(a.toLowerCase().replace(' ', '_')));
+
+  if (hasDocumentAttrs && hasLinkedInAttrs) {
+    return ['linkedin', 'document'];
+  } else if (hasLinkedInAttrs) {
+    return ['linkedin'];
+  } else if (hasDocumentAttrs) {
+    return ['document'];
+  }
+  return ['linkedin'];
+};
+
+// Function to format attribute name for display
+const formatAttributeName = (attr) => {
+  return attr
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
+
 export default function RespondentDashboard() {
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
@@ -9,6 +38,11 @@ export default function RespondentDashboard() {
   const [verifyStep, setVerifyStep] = useState(1);
   const [selectedMethod, setSelectedMethod] = useState('linkedin');
   const [attributeToVerify, setAttributeToVerify] = useState(null);
+  const [attributesRequiringProof, setAttributesRequiringProof] = useState([]);
+  const [recommendedMethods, setRecommendedMethods] = useState(['linkedin']);
+  const [linkedinEmail, setLinkedinEmail] = useState('');
+  const [linkedinPassword, setLinkedinPassword] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   // Handle clicking on a pending attribute
   const handlePendingAttributeClick = (attr) => {
@@ -19,13 +53,41 @@ export default function RespondentDashboard() {
     }
   };
 
-  // Check if user came from email verification link
+  // Check if user came from email verification link and load attributes
   useEffect(() => {
     const showVerification = localStorage.getItem('showVerificationFlow');
     if (showVerification === 'true') {
       setActiveTab('verify');
       // Clear the flag so it doesn't show again on refresh
       localStorage.removeItem('showVerificationFlow');
+    }
+
+    // Load attributes requiring proof from user data or localStorage
+    const savedAttributes = localStorage.getItem('attributesRequiringProof');
+    const savedRecommendedMethods = localStorage.getItem('recommendedVerificationMethods');
+
+    if (savedAttributes) {
+      try {
+        const attrs = JSON.parse(savedAttributes);
+        setAttributesRequiringProof(attrs);
+        // Calculate recommended methods
+        const methods = getRecommendedMethods(attrs);
+        setRecommendedMethods(methods);
+        // Set default selection to first recommended method
+        setSelectedMethod(methods[0]);
+      } catch (e) {
+        console.error('Error parsing attributes:', e);
+      }
+    }
+
+    if (savedRecommendedMethods) {
+      try {
+        const methods = JSON.parse(savedRecommendedMethods);
+        setRecommendedMethods(methods);
+        setSelectedMethod(methods[0]);
+      } catch (e) {
+        console.error('Error parsing recommended methods:', e);
+      }
     }
   }, []);
 
@@ -56,8 +118,6 @@ export default function RespondentDashboard() {
     { name: 'Job Title', status: 'verified', source: 'via LinkedIn' },
     { name: 'Industry', status: 'verified', source: 'via LinkedIn' },
     { name: 'Company Size', status: 'pending', source: 'via Pending' },
-    { name: 'HHI', status: 'verified', source: 'via Document' },
-    { name: 'Vehicle Owner', status: 'expiring', source: 'via Document' },
   ];
 
   const verifiedCount = attributes.filter(a => a.status === 'verified').length;
@@ -481,7 +541,43 @@ export default function RespondentDashboard() {
               {verifyStep === 2 && (
                 <div className="bg-white rounded-2xl border border-gray-200 p-8">
                   <h1 className="text-2xl font-bold text-gray-900 mb-2">Choose Verification Method</h1>
-                  <p className="text-gray-500 mb-6">Select how you'd like to verify your attributes</p>
+                  <p className="text-gray-500 mb-4">Select how you'd like to verify your attributes</p>
+
+                  {/* Show attributes requiring proof */}
+                  {attributesRequiringProof.length > 0 && (
+                    <div className="mb-6 p-4 bg-blue-50 rounded-xl border border-blue-200">
+                      <p className="text-sm font-semibold text-blue-800 mb-2">Attributes to Verify:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {attributesRequiringProof.map((attr, idx) => {
+                          const isLinkedInAttr = LINKEDIN_ATTRIBUTES.includes(attr.toLowerCase().replace(' ', '_'));
+                          return (
+                            <span
+                              key={idx}
+                              className={`px-3 py-1 rounded-full text-xs font-medium ${
+                                isLinkedInAttr
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-orange-100 text-orange-800'
+                              }`}
+                            >
+                              {formatAttributeName(attr)}
+                              <span className="ml-1 opacity-60">
+                                ({isLinkedInAttr ? 'LinkedIn' : 'Document'})
+                              </span>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recommendation notice */}
+                  {recommendedMethods.length === 2 && (
+                    <div className="mb-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                      <p className="text-sm text-yellow-800">
+                        <strong>Note:</strong> Based on your attributes, we recommend using <strong>both LinkedIn and Document Upload</strong> for complete verification.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Verification Options */}
                   <div className="space-y-3 mb-8">
@@ -502,7 +598,9 @@ export default function RespondentDashboard() {
                       <div className="flex-1 text-left">
                         <div className="flex items-center gap-2">
                           <span className="font-semibold text-gray-900">LinkedIn</span>
-                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-medium rounded">Recommended</span>
+                          {recommendedMethods.includes('linkedin') && (
+                            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-medium rounded">Recommended</span>
+                          )}
                         </div>
                         <p className="text-sm text-gray-500">Verify via your LinkedIn profile</p>
                       </div>
@@ -551,13 +649,18 @@ export default function RespondentDashboard() {
                           : 'border-gray-200 hover:border-gray-300'
                       }`}
                     >
-                      <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
-                        <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+                        <svg className="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
                       </div>
                       <div className="flex-1 text-left">
-                        <span className="font-semibold text-gray-900">Document Upload</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-gray-900">Document Upload</span>
+                          {recommendedMethods.includes('document') && (
+                            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-medium rounded">Recommended</span>
+                          )}
+                        </div>
                         <p className="text-sm text-gray-500">Upload supporting documents</p>
                       </div>
                       <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
@@ -594,13 +697,122 @@ export default function RespondentDashboard() {
                 </div>
               )}
 
-              {/* Step 3: Placeholder for next step */}
-              {verifyStep === 3 && (
-                <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center">
-                  <h1 className="text-2xl font-bold text-gray-900 mb-4">Verification in Progress</h1>
-                  <p className="text-gray-500 mb-6">Connect your {selectedMethod === 'linkedin' ? 'LinkedIn' : selectedMethod === 'email' ? 'Work Email' : 'Documents'} to verify your attributes.</p>
+              {/* Step 3: LinkedIn Login / Document Upload / Email Verification */}
+              {verifyStep === 3 && selectedMethod === 'linkedin' && (
+                <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden max-w-md mx-auto">
+                  {/* LinkedIn Header */}
+                  <div className="bg-[#0077B5] px-8 py-6 text-center">
+                    <svg className="w-10 h-10 text-white mx-auto mb-2" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/>
+                    </svg>
+                    <h2 className="text-white text-xl font-semibold">Sign in to LinkedIn</h2>
+                  </div>
 
-                  <div className="flex items-center justify-center gap-4">
+                  {/* Login Form */}
+                  <div className="p-8">
+                    <p className="text-gray-600 text-sm text-center mb-6">
+                      Connect your LinkedIn account to verify your professional attributes
+                    </p>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Email or Phone</label>
+                        <input
+                          type="email"
+                          value={linkedinEmail}
+                          onChange={(e) => setLinkedinEmail(e.target.value)}
+                          placeholder="Enter your email"
+                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                        <input
+                          type="password"
+                          value={linkedinPassword}
+                          onChange={(e) => setLinkedinPassword(e.target.value)}
+                          placeholder="Enter your password"
+                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                        />
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          if (linkedinEmail && linkedinPassword) {
+                            setIsLoggingIn(true);
+                            // Simulate login delay
+                            setTimeout(() => {
+                              setIsLoggingIn(false);
+                              setVerifyStep(4);
+                            }, 1500);
+                          }
+                        }}
+                        disabled={!linkedinEmail || !linkedinPassword || isLoggingIn}
+                        className="w-full py-3 bg-[#0077B5] text-white rounded-full font-semibold hover:bg-[#006097] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isLoggingIn ? (
+                          <span className="flex items-center justify-center gap-2">
+                            <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                            </svg>
+                            Signing in...
+                          </span>
+                        ) : 'Sign in'}
+                      </button>
+                    </div>
+
+                    <div className="mt-6 text-center">
+                      <a href="#" className="text-[#0077B5] text-sm font-medium hover:underline">Forgot password?</a>
+                    </div>
+
+                    <div className="mt-6 pt-6 border-t border-gray-200 text-center">
+                      <p className="text-gray-500 text-xs">
+                        By signing in, you agree to share your professional information for verification purposes.
+                      </p>
+                    </div>
+
+                    {/* Back Button */}
+                    <button
+                      onClick={() => setVerifyStep(2)}
+                      className="mt-6 w-full flex items-center justify-center gap-2 text-gray-600 hover:text-gray-900 font-medium"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                      </svg>
+                      Back to verification methods
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 3: Document Upload */}
+              {verifyStep === 3 && selectedMethod === 'document' && (
+                <div className="bg-white rounded-2xl border border-gray-200 p-8">
+                  <h1 className="text-2xl font-bold text-gray-900 mb-2">Upload Documents</h1>
+                  <p className="text-gray-500 mb-6">Upload supporting documents to verify your attributes</p>
+
+                  <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center mb-6">
+                    <svg className="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    <p className="text-gray-600 mb-2">Drag and drop your files here, or</p>
+                    <button
+                      onClick={() => {
+                        setIsLoggingIn(true);
+                        setTimeout(() => {
+                          setIsLoggingIn(false);
+                          setVerifyStep(4);
+                        }, 1500);
+                      }}
+                      className="text-purple-600 font-semibold hover:text-purple-700"
+                    >
+                      Browse files
+                    </button>
+                    <p className="text-xs text-gray-400 mt-2">Supported: PDF, JPG, PNG (Max 10MB)</p>
+                  </div>
+
+                  <div className="flex items-center gap-4">
                     <button
                       onClick={() => setVerifyStep(2)}
                       className="flex items-center gap-2 px-5 py-2.5 text-gray-600 hover:text-gray-900 font-medium"
@@ -610,17 +822,88 @@ export default function RespondentDashboard() {
                       </svg>
                       Back
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 3: Work Email */}
+              {verifyStep === 3 && selectedMethod === 'email' && (
+                <div className="bg-white rounded-2xl border border-gray-200 p-8">
+                  <h1 className="text-2xl font-bold text-gray-900 mb-2">Verify Work Email</h1>
+                  <p className="text-gray-500 mb-6">Enter your work email to receive a verification link</p>
+
+                  <div className="space-y-4 mb-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Work Email Address</label>
+                      <input
+                        type="email"
+                        placeholder="you@company.com"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+                      />
+                    </div>
                     <button
                       onClick={() => {
-                        setActiveTab('profile');
-                        setVerifyStep(1);
-                        setAttributeToVerify(null);
+                        setIsLoggingIn(true);
+                        setTimeout(() => {
+                          setIsLoggingIn(false);
+                          setVerifyStep(4);
+                        }, 1500);
                       }}
-                      className="flex items-center gap-2 px-6 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium"
+                      className="w-full py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition"
                     >
-                      Complete Verification
+                      Send Verification Link
                     </button>
                   </div>
+
+                  <button
+                    onClick={() => setVerifyStep(2)}
+                    className="flex items-center gap-2 text-gray-600 hover:text-gray-900 font-medium"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                    </svg>
+                    Back
+                  </button>
+                </div>
+              )}
+
+              {/* Step 4: Verification Success */}
+              {verifyStep === 4 && (
+                <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center">
+                  {/* Success Icon */}
+                  <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <svg className="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+
+                  <h1 className="text-2xl font-bold text-gray-900 mb-2">Verification Successful!</h1>
+                  <p className="text-gray-500 mb-6">
+                    Your attributes have been successfully verified via {selectedMethod === 'linkedin' ? 'LinkedIn' : selectedMethod === 'email' ? 'Work Email' : 'Document Upload'}.
+                  </p>
+
+                  {/* ZKP Notice */}
+                  <div className="bg-purple-50 rounded-lg p-4 mb-6 text-left">
+                    <p className="text-sm text-purple-700">
+                      <span className="font-semibold">Zero-Knowledge Proof:</span> Your actual data was never shared. Only the verification status has been recorded.
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setActiveTab('profile');
+                      setVerifyStep(1);
+                      setAttributeToVerify(null);
+                      setLinkedinEmail('');
+                      setLinkedinPassword('');
+                    }}
+                    className="inline-flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Done
+                  </button>
                 </div>
               )}
             </div>

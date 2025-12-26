@@ -1,6 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 
+// Attribute categories for verification method recommendations
+const DOCUMENT_ATTRIBUTES = ['age', 'gender', 'income', 'location', 'education'];
+const LINKEDIN_ATTRIBUTES = ['job_title', 'industry', 'company_size', 'occupation', 'seniority', 'department'];
+
+// Function to format attribute name for display
+const formatAttributeName = (attr) => {
+  return attr
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
+
 export default function Verify() {
   const { token } = useParams();
   const navigate = useNavigate();
@@ -36,6 +48,11 @@ export default function Verify() {
   };
 
   const handleContinueToSignup = () => {
+    // Save attributes and recommended methods to localStorage for the verification flow
+    localStorage.setItem('attributesRequiringProof', JSON.stringify(tokenData.attributesRequiringProof || []));
+    localStorage.setItem('recommendedVerificationMethods', JSON.stringify(tokenData.recommendedVerificationMethods || ['linkedin']));
+    localStorage.setItem('showVerificationFlow', 'true');
+
     // Navigate to signup with verification data for one-time ZKP verification
     // No credentials will be stored - just verify and redirect to home
     navigate('/signup', {
@@ -45,7 +62,8 @@ export default function Verify() {
         respondentId: tokenData.respondentId,
         // ZKP query for display
         zkpQuery: tokenData.zkpQuery,
-        attributesRequiringProof: tokenData.attributesRequiringProof
+        attributesRequiringProof: tokenData.attributesRequiringProof,
+        recommendedVerificationMethods: tokenData.recommendedVerificationMethods
       }
     });
   };
@@ -131,14 +149,21 @@ export default function Verify() {
           <div className="mb-6">
             <h2 className="text-sm font-semibold text-gray-500 uppercase mb-3">Attributes to Verify</h2>
             <div className="flex flex-wrap gap-2">
-              {tokenData.attributesRequiringProof.map((attr, idx) => (
-                <span
-                  key={idx}
-                  className="px-4 py-2 bg-yellow-100 text-yellow-800 rounded-full text-sm font-medium"
-                >
-                  {attr.charAt(0).toUpperCase() + attr.slice(1)}
-                </span>
-              ))}
+              {tokenData.attributesRequiringProof.map((attr, idx) => {
+                const isLinkedInAttr = LINKEDIN_ATTRIBUTES.includes(attr.toLowerCase().replace(' ', '_'));
+                return (
+                  <span
+                    key={idx}
+                    className={`px-4 py-2 rounded-full text-sm font-medium ${
+                      isLinkedInAttr
+                        ? 'bg-blue-100 text-blue-800'
+                        : 'bg-orange-100 text-orange-800'
+                    }`}
+                  >
+                    {formatAttributeName(attr)}
+                  </span>
+                );
+              })}
             </div>
           </div>
         )}

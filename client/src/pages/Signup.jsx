@@ -26,6 +26,9 @@ export default function Signup() {
   const [verifying, setVerifying] = useState(false);
   const [verificationComplete, setVerificationComplete] = useState(false);
   const [zkpResult, setZkpResult] = useState(null);
+  const [linkedinEmail, setLinkedinEmail] = useState('');
+  const [linkedinPassword, setLinkedinPassword] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const navigate = useNavigate();
 
   const respondentVerification = verificationData || null;
@@ -54,6 +57,9 @@ export default function Signup() {
     }
   ];
 
+  // Get recommended methods from verification data
+  const recommendedMethods = respondentVerification?.recommendedVerificationMethods || ['linkedin'];
+
   const verificationMethods = [
     {
       id: 'linkedin',
@@ -64,7 +70,7 @@ export default function Signup() {
           <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
         </svg>
       ),
-      recommended: true
+      recommended: recommendedMethods.includes('linkedin')
     },
     {
       id: 'email',
@@ -74,17 +80,19 @@ export default function Signup() {
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
         </svg>
-      )
+      ),
+      recommended: recommendedMethods.includes('email')
     },
     {
       id: 'document',
       name: 'Document Upload',
-      description: 'Upload supporting documents',
+      description: 'Upload supporting documents (ID, certificates)',
       icon: (
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
         </svg>
-      )
+      ),
+      recommended: recommendedMethods.includes('document')
     }
   ];
 
@@ -119,8 +127,8 @@ export default function Signup() {
       // Consent given, move to method selection
       setVerifyStep(3);
     } else if (verifyStep === 3) {
-      // Method selected, complete verification
-      handleCompleteVerification();
+      // Method selected, move to login/upload step
+      setVerifyStep(4);
     }
   };
 
@@ -307,16 +315,16 @@ export default function Signup() {
             {/* Progress Bar */}
             <div className="mb-8">
               <div className="flex items-center justify-center gap-2 mb-4">
-                {[1, 2, 3].map((s) => (
+                {[1, 2, 3, 4].map((s) => (
                   <div
                     key={s}
-                    className={`h-2 w-24 rounded-full transition-all ${
+                    className={`h-2 w-20 rounded-full transition-all ${
                       s <= verifyStep ? 'bg-purple-600' : 'bg-gray-200'
                     }`}
                   />
                 ))}
               </div>
-              <p className="text-center text-sm text-gray-500">Step {verifyStep} of 3</p>
+              <p className="text-center text-sm text-gray-500">Step {verifyStep} of 4</p>
             </div>
 
             <div className="bg-white rounded-2xl shadow-lg p-8">
@@ -503,6 +511,174 @@ export default function Signup() {
                       )}
                     </button>
                   </div>
+                </>
+              )}
+
+              {/* Step 4: LinkedIn Login / Document Upload / Work Email */}
+              {verifyStep === 4 && selectedMethod === 'linkedin' && (
+                <div className="max-w-md mx-auto">
+                  {/* LinkedIn Header */}
+                  <div className="bg-[#0077B5] rounded-t-xl px-8 py-6 text-center">
+                    <svg className="w-10 h-10 text-white mx-auto mb-2" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/>
+                    </svg>
+                    <h2 className="text-white text-xl font-semibold">Sign in to LinkedIn</h2>
+                  </div>
+
+                  {/* Login Form */}
+                  <div className="bg-white rounded-b-xl border border-t-0 border-gray-200 p-8">
+                    <p className="text-gray-600 text-sm text-center mb-6">
+                      Connect your LinkedIn account to verify your professional attributes
+                    </p>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Email or Phone</label>
+                        <input
+                          type="email"
+                          value={linkedinEmail}
+                          onChange={(e) => setLinkedinEmail(e.target.value)}
+                          placeholder="Enter your email"
+                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                        <input
+                          type="password"
+                          value={linkedinPassword}
+                          onChange={(e) => setLinkedinPassword(e.target.value)}
+                          placeholder="Enter your password"
+                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                        />
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          if (linkedinEmail && linkedinPassword) {
+                            setIsLoggingIn(true);
+                            // Simulate login delay then complete verification
+                            setTimeout(() => {
+                              setIsLoggingIn(false);
+                              handleCompleteVerification();
+                            }, 1500);
+                          }
+                        }}
+                        disabled={!linkedinEmail || !linkedinPassword || isLoggingIn}
+                        className="w-full py-3 bg-[#0077B5] text-white rounded-full font-semibold hover:bg-[#006097] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isLoggingIn ? (
+                          <span className="flex items-center justify-center gap-2">
+                            <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                            </svg>
+                            Signing in...
+                          </span>
+                        ) : 'Sign in'}
+                      </button>
+                    </div>
+
+                    <div className="mt-6 text-center">
+                      <a href="#" className="text-[#0077B5] text-sm font-medium hover:underline">Forgot password?</a>
+                    </div>
+
+                    <div className="mt-6 pt-6 border-t border-gray-200 text-center">
+                      <p className="text-gray-500 text-xs">
+                        By signing in, you agree to share your professional information for verification purposes.
+                      </p>
+                    </div>
+
+                    {/* Back Button */}
+                    <button
+                      onClick={() => setVerifyStep(3)}
+                      className="mt-6 w-full flex items-center justify-center gap-2 text-gray-600 hover:text-gray-900 font-medium"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                      </svg>
+                      Back to verification methods
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 4: Document Upload */}
+              {verifyStep === 4 && selectedMethod === 'document' && (
+                <>
+                  <h2 className="text-2xl font-bold text-gray-900 mb-2">Upload Documents</h2>
+                  <p className="text-gray-600 mb-6">Upload supporting documents to verify your attributes</p>
+
+                  <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center mb-6">
+                    <svg className="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    <p className="text-gray-600 mb-2">Drag and drop your files here, or</p>
+                    <button
+                      onClick={() => {
+                        setIsLoggingIn(true);
+                        setTimeout(() => {
+                          setIsLoggingIn(false);
+                          handleCompleteVerification();
+                        }, 1500);
+                      }}
+                      className="text-purple-600 font-semibold hover:text-purple-700"
+                    >
+                      Browse files
+                    </button>
+                    <p className="text-xs text-gray-400 mt-2">Supported: PDF, JPG, PNG (Max 10MB)</p>
+                  </div>
+
+                  <button
+                    onClick={() => setVerifyStep(3)}
+                    className="flex items-center gap-2 text-gray-600 hover:text-gray-900 font-medium"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                    </svg>
+                    Back
+                  </button>
+                </>
+              )}
+
+              {/* Step 4: Work Email */}
+              {verifyStep === 4 && selectedMethod === 'email' && (
+                <>
+                  <h2 className="text-2xl font-bold text-gray-900 mb-2">Verify Work Email</h2>
+                  <p className="text-gray-600 mb-6">Enter your work email to receive a verification link</p>
+
+                  <div className="space-y-4 mb-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Work Email Address</label>
+                      <input
+                        type="email"
+                        placeholder="you@company.com"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+                      />
+                    </div>
+                    <button
+                      onClick={() => {
+                        setIsLoggingIn(true);
+                        setTimeout(() => {
+                          setIsLoggingIn(false);
+                          handleCompleteVerification();
+                        }, 1500);
+                      }}
+                      className="w-full py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition"
+                    >
+                      Send Verification Link
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={() => setVerifyStep(3)}
+                    className="flex items-center gap-2 text-gray-600 hover:text-gray-900 font-medium"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                    </svg>
+                    Back
+                  </button>
                 </>
               )}
             </div>
