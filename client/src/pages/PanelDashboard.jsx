@@ -125,7 +125,7 @@ export default function PanelDashboard() {
         if (data.respondents && data.respondents.length > 0) {
           const existingPanelists = JSON.parse(localStorage.getItem('panelists') || '[]');
 
-          // Map synced respondents to panelist format (ZKP compliant - no PII)
+          // Map synced respondents to panelist format
           const newPanelists = data.respondents.map(r => ({
             id: r.id,
             hashedData: r.hashedData,
@@ -137,7 +137,10 @@ export default function PanelDashboard() {
             emailSent: false,
             // ZKP Query and Result from panel company
             zkpQuery: r.zkpQuery,
-            zkpResult: r.zkpResult || 'pending'
+            zkpResult: r.zkpResult || 'pending',
+            // Include email and name for verification emails (demo/testing)
+            email: r.email,
+            name: r.name
           }));
 
           // Merge with existing panelists (avoid duplicates by ID)

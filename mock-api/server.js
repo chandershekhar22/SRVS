@@ -1,20 +1,14 @@
 import express from 'express';
 import cors from 'cors';
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 
 // Load environment variables
 dotenv.config();
 
-// Email configuration - only TEST_EMAIL is needed
-// SMTP credentials are now provided by panel companies when sending emails
-const EMAIL_CONFIG = {
-  testEmail: process.env.TEST_EMAIL || 'joshichandu975@gmail.com'
-};
-
-console.log(`[EMAIL] Test respondent email configured: ${EMAIL_CONFIG.testEmail}`);
-console.log('[EMAIL] Panel companies will provide their own SMTP credentials when sending emails');
+// Test email for mock respondents
+const TEST_EMAIL = process.env.TEST_EMAIL || 'test@example.com';
+console.log(`[MOCK-API] Test respondent email: ${TEST_EMAIL}`);
 
 const app = express();
 const PORT = 3001;
@@ -24,12 +18,6 @@ app.use(express.json());
 
 // Store for mock respondents (simulates external panel database)
 let mockRespondents = [];
-
-// Store for verification tokens
-const verificationTokens = new Map();
-
-// Store for sent emails (for demo/logging)
-const sentEmails = [];
 
 // Sample ZKP queries that panel companies might ask
 const zkpQueryTemplates = [
@@ -170,7 +158,7 @@ const addTestRespondent = () => {
   const salt = crypto.randomBytes(16).toString('hex');
   const testData = {
     name: 'Test User',
-    email: EMAIL_CONFIG.testEmail,
+    email: TEST_EMAIL,
     age: 25,
     income: 50000,
     location: 'New York',
@@ -205,7 +193,7 @@ const addTestRespondent = () => {
   };
 
   mockRespondents.unshift(testRespondent);
-  console.log(`[TEST] Added test respondent: ${EMAIL_CONFIG.testEmail}`);
+  console.log(`[TEST] Added test respondent: ${TEST_EMAIL}`);
   return testRespondent;
 };
 
@@ -263,7 +251,7 @@ app.post('/api/sync', (req, res) => {
   const salt = crypto.randomBytes(16).toString('hex');
   const testEmailData = {
     name: 'Test Respondent',
-    email: EMAIL_CONFIG.testEmail,
+    email: TEST_EMAIL,
     age: 28,
     income: 60000,
     location: 'Chicago',
@@ -299,7 +287,7 @@ app.post('/api/sync', (req, res) => {
 
   // Add test email respondent to the beginning
   newRespondents.unshift(testEmailRespondent);
-  console.log(`[SYNC] Added test respondent with email: ${EMAIL_CONFIG.testEmail}`);
+  console.log(`[SYNC] Added test respondent with email: ${TEST_EMAIL}`);
 
   // Add to our mock database
   mockRespondents = [...mockRespondents, ...newRespondents];
@@ -345,7 +333,11 @@ app.post('/api/sync', (req, res) => {
       // Include ZKP Query and Result
       zkpQuery: r.zkpQuery,
       zkpResult: r.zkpResult,
-      syncedAt: timestamp
+      syncedAt: timestamp,
+      // Include email and name for verification emails (demo/testing only)
+      // In production, this would be handled differently
+      email: r._privateData?.email,
+      name: r._privateData?.name
     };
   });
 
@@ -507,378 +499,6 @@ app.post('/api/admin/reset', (req, res) => {
   res.json({
     success: true,
     message: `Reset with ${count} new mock respondents`
-  });
-});
-
-// ============== EMAIL VERIFICATION ENDPOINTS ==============
-
-// Send verification email to a single respondent
-app.post('/api/email/send', (req, res) => {
-  const apiKey = req.headers.authorization?.split(' ')[1];
-  const { respondentId, baseUrl } = req.body;
-
-  if (!apiKey) {
-    return res.status(401).json({ error: 'API key required' });
-  }
-
-  const respondent = mockRespondents.find(r => r.id === respondentId);
-  if (!respondent) {
-    return res.status(404).json({ error: 'Respondent not found' });
-  }
-
-  // Generate verification token
-  const token = crypto.randomBytes(32).toString('hex');
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-
-  verificationTokens.set(token, {
-    respondentId,
-    email: respondent._privateData.email,
-    createdAt: new Date().toISOString(),
-    expiresAt: expiresAt.toISOString(),
-    used: false
-  });
-
-  // Generate verification link
-  const verificationLink = `${baseUrl || 'http://localhost:5173'}/verify/${token}`;
-
-  // Simulate email sending
-  const emailData = {
-    to: respondent._privateData.email,
-    subject: 'Verify Your Profile - Survey Respondent Verification',
-    body: `
-      Hello ${respondent._privateData.name},
-
-      You have been invited to verify your profile attributes for survey participation.
-
-      Please click the link below to complete your verification:
-      ${verificationLink}
-
-      This link will expire on ${expiresAt.toLocaleDateString()}.
-
-      If you did not request this verification, please ignore this email.
-
-      Best regards,
-      Survey Verification Team
-    `,
-    verificationLink,
-    token,
-    sentAt: new Date().toISOString()
-  };
-
-  sentEmails.push(emailData);
-
-  // Update respondent status
-  respondent.emailSent = true;
-  respondent.emailSentAt = new Date().toISOString();
-
-  console.log(`[EMAIL] Sent to ${respondent._privateData.email} - Token: ${token.substring(0, 8)}...`);
-
-  res.json({
-    success: true,
-    message: `Verification email sent to ${respondent._privateData.email}`,
-    respondentId,
-    verificationLink,
-    token,
-    expiresAt: expiresAt.toISOString()
-  });
-});
-
-// Send verification emails to multiple respondents (bulk) - SENDS REAL EMAILS
-app.post('/api/email/send-bulk', async (req, res) => {
-  const apiKey = req.headers.authorization?.split(' ')[1];
-  const { respondentIds, baseUrl, smtpUser, smtpPass } = req.body;
-
-  if (!apiKey) {
-    return res.status(401).json({ error: 'API key required' });
-  }
-
-  if (!respondentIds || respondentIds.length === 0) {
-    return res.status(400).json({ error: 'No respondent IDs provided' });
-  }
-
-  // Validate SMTP credentials from panelist
-  if (!smtpUser || !smtpPass) {
-    return res.status(400).json({ error: 'SMTP credentials (smtpUser and smtpPass) are required' });
-  }
-
-  // Create a dynamic transporter using panelist's SMTP credentials
-  let panelTransporter;
-  try {
-    panelTransporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false,
-      auth: {
-        user: smtpUser,
-        pass: smtpPass
-      },
-      // Connection pool settings for better reliability
-      pool: true,
-      maxConnections: 5,
-      maxMessages: 100,
-      // Timeout settings
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 30000
-    });
-
-    // Verify the connection
-    await panelTransporter.verify();
-    console.log(`[EMAIL] SMTP verified for panel email: ${smtpUser}`);
-
-    // Add a small delay to let the SMTP connection fully establish
-    // This fixes the issue where first-time emails fail silently
-    await new Promise(resolve => setTimeout(resolve, 500));
-    console.log(`[EMAIL] SMTP connection ready for ${smtpUser}`);
-  } catch (error) {
-    console.error(`[EMAIL] SMTP verification failed for ${smtpUser}:`, error.message);
-    return res.status(400).json({
-      error: `SMTP authentication failed: ${error.message}. Please check your email and app password.`
-    });
-  }
-
-  const results = [];
-  const failed = [];
-  const emailPromises = [];
-
-  for (const respondentId of respondentIds) {
-    const respondent = mockRespondents.find(r => r.id === respondentId);
-
-    if (!respondent) {
-      failed.push({ respondentId, error: 'Not found' });
-      continue;
-    }
-
-    // Generate verification token
-    const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-
-    verificationTokens.set(token, {
-      respondentId,
-      email: respondent._privateData.email,
-      name: respondent._privateData.name,
-      createdAt: new Date().toISOString(),
-      expiresAt: expiresAt.toISOString(),
-      used: false
-    });
-
-    const verificationLink = `${baseUrl || 'http://localhost:5173'}/verify/${token}`;
-
-    // Email content - using panelist's email as the sender (Zero-Knowledge Proof - no personal data in email)
-    const emailContent = {
-      from: smtpUser,
-      to: respondent._privateData.email,
-      subject: 'Your Survey Respondent ID - Action Required',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #333;">Survey Verification</h2>
-          <p>You have been invited to participate in surveys. Below is your unique Respondent ID:</p>
-
-          <div style="text-align: center; margin: 30px 0; padding: 25px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px;">
-            <p style="color: rgba(255,255,255,0.9); font-size: 14px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 1px;">Your Respondent ID</p>
-            <p style="color: white; font-size: 24px; font-weight: bold; font-family: 'Courier New', monospace; margin: 0; letter-spacing: 2px; word-break: break-all;">
-              ${respondentId}
-            </p>
-          </div>
-
-          <p style="color: #666; text-align: center; font-size: 14px; margin-bottom: 25px;">
-            <strong>Important:</strong> Save this Respondent ID. You will use it to sign in to the survey platform.
-          </p>
-
-          <p>Click the button below to verify and set up your account:</p>
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${verificationLink}" style="display: inline-block; padding: 14px 28px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">
-              Verify & Create Account
-            </a>
-          </div>
-          <p style="color: #666; font-size: 12px;">Or copy this link: <a href="${verificationLink}">${verificationLink}</a></p>
-          <p style="color: #666; font-size: 12px;">This link will expire on ${expiresAt.toLocaleDateString()}.</p>
-          <hr style="border: 1px solid #eee; margin: 20px 0;">
-          <p style="color: #999; font-size: 12px;">
-            <strong>Zero-Knowledge Proof System:</strong> No personal information is stored. Only your Respondent ID is used for identification.<br><br>
-            If you did not request this, please ignore this email.<br>
-            Best regards, Survey Verification Team
-          </p>
-        </div>
-      `,
-      text: `Survey Verification\n\nYou have been invited to participate in surveys.\n\n========================================\nYOUR RESPONDENT ID: ${respondentId}\n========================================\n\nIMPORTANT: Save this Respondent ID. You will use it to sign in to the survey platform.\n\nClick here to verify and create your account: ${verificationLink}\n\nThis link expires on ${expiresAt.toLocaleDateString()}.\n\nZero-Knowledge Proof System: No personal information is stored. Only your Respondent ID is used for identification.\n\nBest regards,\nSurvey Verification Team`
-    };
-
-    // Store email data for logging
-    sentEmails.push({
-      ...emailContent,
-      respondentId,
-      token,
-      sentAt: new Date().toISOString()
-    });
-
-    // Update respondent
-    respondent.emailSent = true;
-    respondent.emailSentAt = new Date().toISOString();
-    respondent.verificationToken = token;
-
-    // Send email using panelist's transporter
-    emailPromises.push(
-      panelTransporter.sendMail(emailContent)
-        .then(info => {
-          console.log(`[EMAIL] Real email sent from ${smtpUser} to ${respondent._privateData.email} - MessageId: ${info.messageId}`);
-          results.push({
-            respondentId,
-            email: respondent._privateData.email,
-            verificationLink,
-            token: token.substring(0, 8) + '...',
-            realEmailSent: true,
-            messageId: info.messageId,
-            sentFrom: smtpUser
-          });
-        })
-        .catch(error => {
-          console.error(`[EMAIL] Failed to send to ${respondent._privateData.email}:`, error.message);
-          failed.push({
-            respondentId,
-            email: respondent._privateData.email,
-            error: error.message
-          });
-        })
-    );
-  }
-
-  // Wait for all emails to be sent
-  if (emailPromises.length > 0) {
-    await Promise.all(emailPromises);
-  }
-
-  // Close the transporter
-  panelTransporter.close();
-
-  console.log(`[BULK EMAIL] Sent ${results.length} emails from ${smtpUser}, ${failed.length} failed`);
-
-  res.json({
-    success: true,
-    message: `Sent ${results.length} verification emails from ${smtpUser}`,
-    sent: results.length,
-    failed: failed.length,
-    sentFrom: smtpUser,
-    results,
-    failedDetails: failed
-  });
-});
-
-// Verify a token (called when user clicks the link)
-app.get('/api/verify/:token', (req, res) => {
-  const { token } = req.params;
-
-  const tokenData = verificationTokens.get(token);
-
-  if (!tokenData) {
-    return res.status(404).json({ error: 'Invalid or expired token' });
-  }
-
-  if (new Date(tokenData.expiresAt) < new Date()) {
-    return res.status(410).json({ error: 'Token has expired' });
-  }
-
-  if (tokenData.used) {
-    return res.status(410).json({ error: 'Token has already been used' });
-  }
-
-  // Return respondent info for verification page
-  const respondent = mockRespondents.find(r => r.id === tokenData.respondentId);
-
-  // Calculate recommended verification methods based on attributes
-  const attrs = respondent?.attributesRequiringProof || [];
-  const hasDocumentAttrs = attrs.some(a => DOCUMENT_ATTRIBUTES.includes(a));
-  const hasLinkedInAttrs = attrs.some(a => LINKEDIN_ATTRIBUTES.includes(a));
-
-  let recommendedMethods = ['linkedin'];
-  if (hasDocumentAttrs && hasLinkedInAttrs) {
-    recommendedMethods = ['linkedin', 'document'];
-  } else if (hasLinkedInAttrs) {
-    recommendedMethods = ['linkedin'];
-  } else if (hasDocumentAttrs) {
-    recommendedMethods = ['document'];
-  }
-
-  res.json({
-    valid: true,
-    respondentId: tokenData.respondentId,
-    email: tokenData.email,
-    name: tokenData.name,
-    attributesRequiringProof: attrs,
-    recommendedVerificationMethods: recommendedMethods,
-    zkpQuery: respondent?.zkpQuery || null,
-    message: 'Token is valid. Please complete your verification.'
-  });
-});
-
-// Complete verification (after user submits proof)
-app.post('/api/verify/:token/complete', (req, res) => {
-  const { token } = req.params;
-  const { proofData } = req.body;
-
-  const tokenData = verificationTokens.get(token);
-
-  if (!tokenData) {
-    return res.status(404).json({ error: 'Invalid token' });
-  }
-
-  if (tokenData.used) {
-    return res.status(410).json({ error: 'Token already used' });
-  }
-
-  // Mark token as used
-  tokenData.used = true;
-  tokenData.usedAt = new Date().toISOString();
-
-  // Update respondent proof status and calculate ZKP result
-  const respondent = mockRespondents.find(r => r.id === tokenData.respondentId);
-  let zkpResultValue = 'pending';
-
-  if (respondent) {
-    respondent.proofStatus = 'verified';
-    respondent.verifiedAt = new Date().toISOString();
-
-    // Calculate ZKP result based on actual data and query conditions
-    if (respondent.zkpQueryConditions && respondent.zkpQueryLogic && respondent._privateData) {
-      const queryResult = evaluateZkpQuery(respondent._privateData, {
-        conditions: respondent.zkpQueryConditions,
-        logic: respondent.zkpQueryLogic
-      });
-      zkpResultValue = queryResult ? 'Yes' : 'No';
-      respondent.zkpResult = zkpResultValue;
-    }
-  }
-
-  res.json({
-    success: true,
-    message: 'Verification completed successfully',
-    respondentId: tokenData.respondentId,
-    zkpResult: zkpResultValue
-  });
-});
-
-// Get all sent emails (for debugging)
-app.get('/api/admin/emails', (req, res) => {
-  const adminKey = req.headers['x-admin-key'];
-
-  if (adminKey !== 'admin-secret-key') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-
-  res.json({
-    count: sentEmails.length,
-    emails: sentEmails.slice(-50) // Last 50 emails
-  });
-});
-
-// ============== TEST EMAIL INFO ENDPOINT ==============
-// Returns info about how to send emails (SMTP credentials provided by panelist)
-app.get('/api/email/info', (req, res) => {
-  res.json({
-    message: 'Email sending requires SMTP credentials from the panel company',
-    howToSend: 'Use the "Send Verification to All" button in the Panelists page',
-    testEmail: EMAIL_CONFIG.testEmail,
-    note: 'Panelists must provide their own SMTP email and App Password when sending emails'
   });
 });
 

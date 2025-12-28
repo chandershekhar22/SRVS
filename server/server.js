@@ -2,10 +2,33 @@ import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
+import nodemailer from 'nodemailer';
 import surveyRoutes from './routes/surveys.js';
 import syncRoutes from './routes/sync.js';
 
 dotenv.config();
+
+// Store for verification tokens
+const verificationTokens = new Map();
+
+// Store for sent emails (for logging)
+const sentEmails = [];
+
+// Attribute categories for verification method recommendations
+const DOCUMENT_ATTRIBUTES = ['age', 'gender', 'income', 'location', 'education'];
+const LINKEDIN_ATTRIBUTES = ['job_title', 'industry', 'company_size', 'occupation', 'seniority', 'department'];
+
+// LinkedIn OAuth configuration
+const LINKEDIN_CONFIG = {
+  clientId: process.env.LINKEDIN_CLIENT_ID,
+  clientSecret: process.env.LINKEDIN_CLIENT_SECRET,
+  redirectUri: process.env.LINKEDIN_REDIRECT_URI || 'http://localhost:5173/auth/linkedin/callback',
+  scope: 'openid profile email'
+};
+
+// Store for OAuth state tokens (to prevent CSRF)
+const oauthStates = new Map();
 
 const app = express();
 
@@ -48,6 +71,412 @@ app.use('/api', syncRoutes);
 app.get('/', (req, res) => {
   res.json({ message: 'SRVS Backend API is running' });
 });
+
+// ============== LINKEDIN OAUTH ENDPOINTS ==============
+
+// Get LinkedIn authorization URL
+app.get('/api/auth/linkedin', (req, res) => {
+  const { verificationToken } = req.query;
+
+  if (!LINKEDIN_CONFIG.clientId) {
+    return res.status(500).json({
+      error: 'LinkedIn OAuth not configured. Please set LINKEDIN_CLIENT_ID in .env'
+    });
+  }
+
+  // Generate a random state for CSRF protection
+  const state = crypto.randomBytes(16).toString('hex');
+
+  // Store state with verification token for later use
+  oauthStates.set(state, {
+    verificationToken,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 10 * 60 * 1000 // 10 minutes
+  });
+
+  // Build LinkedIn authorization URL
+  const authUrl = new URL('https://www.linkedin.com/oauth/v2/authorization');
+  authUrl.searchParams.set('response_type', 'code');
+  authUrl.searchParams.set('client_id', LINKEDIN_CONFIG.clientId);
+  authUrl.searchParams.set('redirect_uri', LINKEDIN_CONFIG.redirectUri);
+  authUrl.searchParams.set('state', state);
+  authUrl.searchParams.set('scope', LINKEDIN_CONFIG.scope);
+
+  console.log('[LINKEDIN] Auth URL generated for verification token:', verificationToken?.substring(0, 8) + '...');
+
+  res.json({
+    success: true,
+    authUrl: authUrl.toString(),
+    state
+  });
+});
+
+// Exchange authorization code for access token
+app.post('/api/auth/linkedin/callback', async (req, res) => {
+  const { code, state } = req.body;
+
+  if (!code || !state) {
+    return res.status(400).json({ error: 'Missing code or state parameter' });
+  }
+
+  // Verify state to prevent CSRF
+  const stateData = oauthStates.get(state);
+  if (!stateData) {
+    return res.status(400).json({ error: 'Invalid state parameter' });
+  }
+
+  if (Date.now() > stateData.expiresAt) {
+    oauthStates.delete(state);
+    return res.status(400).json({ error: 'State has expired' });
+  }
+
+  // Clean up used state
+  oauthStates.delete(state);
+
+  try {
+    // Exchange code for access token
+    const tokenResponse = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        client_id: LINKEDIN_CONFIG.clientId,
+        client_secret: LINKEDIN_CONFIG.clientSecret,
+        redirect_uri: LINKEDIN_CONFIG.redirectUri
+      })
+    });
+
+    if (!tokenResponse.ok) {
+      const errorData = await tokenResponse.json();
+      console.error('[LINKEDIN] Token exchange failed:', errorData);
+      return res.status(400).json({
+        error: 'Failed to exchange authorization code',
+        details: errorData
+      });
+    }
+
+    const tokenData = await tokenResponse.json();
+    console.log('[LINKEDIN] Token exchange successful');
+
+    // Authentication successful - we have a valid access token
+    // This proves the user authenticated with LinkedIn
+
+    res.json({
+      success: true,
+      authenticated: true,
+      verificationToken: stateData.verificationToken,
+      message: 'LinkedIn authentication successful'
+    });
+
+  } catch (error) {
+    console.error('[LINKEDIN] OAuth error:', error);
+    res.status(500).json({
+      error: 'LinkedIn authentication failed',
+      message: error.message
+    });
+  }
+});
+
+// Clean up expired OAuth states periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [state, data] of oauthStates.entries()) {
+    if (now > data.expiresAt) {
+      oauthStates.delete(state);
+    }
+  }
+}, 60000); // Clean up every minute
+
+// ============== EMAIL VERIFICATION ENDPOINTS ==============
+
+// Send verification emails to multiple respondents (bulk) - SENDS REAL EMAILS
+app.post('/api/email/send-bulk', async (req, res) => {
+  const { respondents, baseUrl, smtpUser, smtpPass, companyType } = req.body;
+
+  if (!respondents || respondents.length === 0) {
+    return res.status(400).json({ error: 'No respondents provided' });
+  }
+
+  // Validate SMTP credentials
+  if (!smtpUser || !smtpPass) {
+    return res.status(400).json({ error: 'SMTP credentials (smtpUser and smtpPass) are required' });
+  }
+
+  // Create a dynamic transporter using provided SMTP credentials
+  let transporter;
+  try {
+    transporter = nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false,
+      auth: {
+        user: smtpUser,
+        pass: smtpPass
+      },
+      pool: true,
+      maxConnections: 5,
+      maxMessages: 100,
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 30000
+    });
+
+    await transporter.verify();
+    console.log(`[EMAIL] SMTP verified for: ${smtpUser}`);
+    await new Promise(resolve => setTimeout(resolve, 500));
+  } catch (error) {
+    console.error(`[EMAIL] SMTP verification failed for ${smtpUser}:`, error.message);
+    return res.status(400).json({
+      error: `SMTP authentication failed: ${error.message}. Please check your email and app password.`
+    });
+  }
+
+  const results = [];
+  const failed = [];
+  const emailPromises = [];
+
+  for (const respondent of respondents) {
+    const { id: respondentId, email, name, attributesRequiringProof } = respondent;
+
+    if (!email) {
+      failed.push({ respondentId, error: 'No email address' });
+      continue;
+    }
+
+    // Generate verification token
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    verificationTokens.set(token, {
+      respondentId,
+      email,
+      name,
+      attributesRequiringProof: attributesRequiringProof || [],
+      createdAt: new Date().toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      used: false
+    });
+
+    const verificationLink = `${baseUrl || 'http://localhost:5173'}/verify/${token}`;
+
+    // Email content - different templates for panel vs insight companies
+    let emailContent;
+
+    if (companyType === 'insight') {
+      emailContent = {
+        from: smtpUser,
+        to: email,
+        subject: 'Less data shared, faster access to studies',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <p style="color: #333; font-size: 16px; margin-bottom: 20px;">Hi ${name?.split(' ')[0] || 'there'},</p>
+            <p style="color: #333; font-size: 16px; line-height: 1.6; margin-bottom: 20px;">
+              We're introducing a simpler, more private way to qualify for research.
+            </p>
+            <p style="color: #333; font-size: 16px; line-height: 1.6; margin-bottom: 20px;">
+              Verify once. Get a credential that proves your eligibility — without revealing your personal details every time.
+            </p>
+            <p style="color: #333; font-size: 16px; line-height: 1.6; margin-bottom: 25px;">
+              Your data stays yours. Matching to studies gets faster.
+            </p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${verificationLink}" style="display: inline-block; padding: 14px 28px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">
+                Get Verified →
+              </a>
+            </div>
+            <p style="color: #666; font-size: 14px; text-align: center; margin-bottom: 30px;">
+              Takes 2–3 minutes.
+            </p>
+            <hr style="border: 1px solid #eee; margin: 20px 0;">
+            <p style="color: #999; font-size: 12px;">Insight company</p>
+          </div>
+        `,
+        text: `Hi ${name?.split(' ')[0] || 'there'},\n\nWe're introducing a simpler, more private way to qualify for research.\n\nVerify once. Get a credential that proves your eligibility — without revealing your personal details every time.\n\nYour data stays yours. Matching to studies gets faster.\n\nGet Verified: ${verificationLink}\n\nTakes 2–3 minutes.\n\nInsight company`
+      };
+    } else {
+      emailContent = {
+        from: smtpUser,
+        to: email,
+        subject: 'Verify once, participate everywhere',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <p style="color: #333; font-size: 16px; margin-bottom: 20px;">Dear panelist,</p>
+            <p style="color: #333; font-size: 16px; line-height: 1.6; margin-bottom: 20px;">
+              We're changing how verification works — and it's better for you.
+            </p>
+            <p style="color: #333; font-size: 16px; line-height: 1.6; margin-bottom: 20px;">
+              Instead of sharing the sensitive personal details for every survey, you'll get a secure credential that proves your eligibility without exposing your actual information.
+            </p>
+            <p style="color: #333; font-size: 16px; line-height: 1.6; margin-bottom: 25px;">
+              One verification. Full privacy. Faster access to studies.
+            </p>
+            <p style="color: #666; font-size: 14px; margin-bottom: 20px;">
+              Takes just a few minutes.
+            </p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${verificationLink}" style="display: inline-block; padding: 14px 28px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">
+                Verify Now →
+              </a>
+            </div>
+            <hr style="border: 1px solid #eee; margin: 20px 0;">
+            <p style="color: #999; font-size: 12px;">Panel company</p>
+          </div>
+        `,
+        text: `Dear panelist,\n\nWe're changing how verification works — and it's better for you.\n\nInstead of sharing the sensitive personal details for every survey, you'll get a secure credential that proves your eligibility without exposing your actual information.\n\nOne verification. Full privacy. Faster access to studies.\n\nTakes just a few minutes.\n\nVerify Now: ${verificationLink}\n\nPanel company`
+      };
+    }
+
+    sentEmails.push({
+      ...emailContent,
+      respondentId,
+      token,
+      sentAt: new Date().toISOString()
+    });
+
+    emailPromises.push(
+      transporter.sendMail(emailContent)
+        .then(info => {
+          console.log(`[EMAIL] Sent to ${email} - MessageId: ${info.messageId}`);
+          results.push({
+            respondentId,
+            email,
+            verificationLink,
+            token: token.substring(0, 8) + '...',
+            realEmailSent: true,
+            messageId: info.messageId
+          });
+        })
+        .catch(error => {
+          console.error(`[EMAIL] Failed to send to ${email}:`, error.message);
+          failed.push({ respondentId, email, error: error.message });
+        })
+    );
+  }
+
+  if (emailPromises.length > 0) {
+    await Promise.all(emailPromises);
+  }
+
+  transporter.close();
+
+  console.log(`[BULK EMAIL] Sent ${results.length} emails, ${failed.length} failed`);
+
+  res.json({
+    success: true,
+    message: `Sent ${results.length} verification emails`,
+    sent: results.length,
+    failed: failed.length,
+    results,
+    failedDetails: failed
+  });
+});
+
+// Verify a token (called when user clicks the link)
+app.get('/api/verify/:token', (req, res) => {
+  const { token } = req.params;
+  const tokenData = verificationTokens.get(token);
+
+  if (!tokenData) {
+    return res.status(404).json({ error: 'Invalid or expired token' });
+  }
+
+  if (new Date(tokenData.expiresAt) < new Date()) {
+    return res.status(410).json({ error: 'Token has expired' });
+  }
+
+  if (tokenData.used) {
+    return res.status(410).json({ error: 'Token has already been used' });
+  }
+
+  // Calculate recommended verification methods based on attributes
+  const attrs = tokenData.attributesRequiringProof || [];
+  const hasDocumentAttrs = attrs.some(a => DOCUMENT_ATTRIBUTES.includes(a));
+  const hasLinkedInAttrs = attrs.some(a => LINKEDIN_ATTRIBUTES.includes(a));
+
+  let recommendedMethods = ['linkedin'];
+  if (hasDocumentAttrs && hasLinkedInAttrs) {
+    recommendedMethods = ['linkedin', 'document'];
+  } else if (hasLinkedInAttrs) {
+    recommendedMethods = ['linkedin'];
+  } else if (hasDocumentAttrs) {
+    recommendedMethods = ['document'];
+  }
+
+  res.json({
+    valid: true,
+    respondentId: tokenData.respondentId,
+    email: tokenData.email,
+    name: tokenData.name,
+    attributesRequiringProof: attrs,
+    recommendedVerificationMethods: recommendedMethods,
+    message: 'Token is valid. Please complete your verification.'
+  });
+});
+
+// Complete verification (after user submits proof)
+app.post('/api/verify/:token/complete', (req, res) => {
+  const { token } = req.params;
+  const { proofData } = req.body;
+
+  const tokenData = verificationTokens.get(token);
+
+  if (!tokenData) {
+    return res.status(404).json({ error: 'Invalid token' });
+  }
+
+  if (tokenData.used) {
+    return res.status(410).json({ error: 'Token already used' });
+  }
+
+  // Mark token as used
+  tokenData.used = true;
+  tokenData.usedAt = new Date().toISOString();
+
+  console.log(`[VERIFICATION] Completed for respondent: ${tokenData.respondentId}`);
+
+  res.json({
+    success: true,
+    message: 'Verification completed successfully',
+    respondentId: tokenData.respondentId,
+    zkpResult: 'Yes' // Default to Yes since verification was successful
+  });
+});
+
+// Get email info
+app.get('/api/email/info', (req, res) => {
+  res.json({
+    message: 'Email sending requires SMTP credentials',
+    howToSend: 'Use the "Send Verification to All" button in the Panelists page',
+    note: 'Provide your SMTP email and App Password when sending emails'
+  });
+});
+
+// Get all sent emails (admin/debug)
+app.get('/api/admin/emails', (req, res) => {
+  const adminKey = req.headers['x-admin-key'];
+
+  if (adminKey !== 'admin-secret-key') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+
+  res.json({
+    count: sentEmails.length,
+    emails: sentEmails.slice(-50)
+  });
+});
+
+// Clean up expired verification tokens periodically
+setInterval(() => {
+  const now = new Date();
+  for (const [token, data] of verificationTokens.entries()) {
+    if (new Date(data.expiresAt) < now) {
+      verificationTokens.delete(token);
+    }
+  }
+}, 3600000); // Clean up every hour
 
 // 404 handler
 app.use((req, res) => {

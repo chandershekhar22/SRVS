@@ -112,7 +112,9 @@ export function AutoSyncProvider({ children }) {
             syncedAt: r.syncedAt,
             emailSent: false,
             zkpQuery: r.zkpQuery,
-            zkpResult: r.zkpResult || 'pending'
+            zkpResult: r.zkpResult || 'pending',
+            email: r.email,
+            name: r.name
           }));
 
           const existingIds = new Set(existingPanelists.map(p => p.id));
@@ -177,7 +179,9 @@ export function AutoSyncProvider({ children }) {
             syncedAt: r.syncedAt,
             emailSent: false,
             zkpQuery: r.zkpQuery,
-            zkpResult: r.zkpResult || 'pending'
+            zkpResult: r.zkpResult || 'pending',
+            email: r.email,
+            name: r.name
           }));
 
           const existingIds = new Set(existingPanelists.map(p => p.id));

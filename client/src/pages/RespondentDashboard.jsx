@@ -47,7 +47,12 @@ export default function RespondentDashboard() {
   // Handle clicking on a pending attribute
   const handlePendingAttributeClick = (attr) => {
     if (attr.status === 'pending' || attr.status === 'expiring') {
+      const attrName = attr.name.toLowerCase().replace(' ', '_');
       setAttributeToVerify(attr);
+      setAttributesRequiringProof([attrName]);
+      const methods = getRecommendedMethods([attrName]);
+      setRecommendedMethods(methods);
+      setSelectedMethod(methods[0]);
       setActiveTab('verify');
       setVerifyStep(1);
     }
@@ -110,18 +115,83 @@ export default function RespondentDashboard() {
     navigate('/');
   };
 
-  // Attributes data - values hidden for ZKP privacy, only verification source shown
-  const attributes = [
+  // Default attributes data for new respondents
+  const defaultAttributes = [
     { name: 'Age', status: 'verified', source: 'via Panel' },
     { name: 'Gender', status: 'verified', source: 'via Panel' },
     { name: 'Location', status: 'verified', source: 'via Panel' },
-    { name: 'Job Title', status: 'verified', source: 'via LinkedIn' },
-    { name: 'Industry', status: 'verified', source: 'via LinkedIn' },
-    { name: 'Company Size', status: 'pending', source: 'via Pending' },
+    { name: 'Job Title', status: 'pending', source: 'via Pending' },
+    { name: 'Industry', status: 'pending', source: 'via Pending' },
+    { name: 'Company Size', status: 'verified', source: 'via Panel' },
   ];
+
+  // Get user-specific storage key
+  const getUserAttributesKey = () => {
+    return `respondentAttributes_${user.id || user.email || 'default'}`;
+  };
+
+  // State for attributes - stored per user
+  const [attributes, setAttributes] = useState(() => {
+    const userKey = `respondentAttributes_${user.id || user.email || 'default'}`;
+    const saved = localStorage.getItem(userKey);
+    return saved ? JSON.parse(saved) : defaultAttributes;
+  });
+
+  // Check if user just came back from LinkedIn OAuth verification
+  useEffect(() => {
+    const verificationSuccess = localStorage.getItem('linkedinVerificationSuccess');
+
+    // If came back from successful LinkedIn verification
+    if (verificationSuccess === 'true') {
+      const verifiedAttrs = JSON.parse(localStorage.getItem('attributesRequiringProof') || '[]');
+
+      if (verifiedAttrs.length > 0) {
+        // Update attributes status to verified
+        setAttributes(prevAttrs => {
+          const updated = prevAttrs.map(attr => {
+            const attrKey = attr.name.toLowerCase().replace(' ', '_');
+            if (verifiedAttrs.includes(attrKey)) {
+              return {
+                ...attr,
+                status: 'verified',
+                source: 'via LinkedIn'
+              };
+            }
+            return attr;
+          });
+          // Save to user-specific localStorage
+          localStorage.setItem(getUserAttributesKey(), JSON.stringify(updated));
+          return updated;
+        });
+      }
+
+      // Clear the verification flags
+      localStorage.removeItem('linkedinVerificationSuccess');
+      localStorage.removeItem('pendingLinkedInVerification');
+      localStorage.removeItem('attributesRequiringProof');
+    }
+  }, []);
 
   const verifiedCount = attributes.filter(a => a.status === 'verified').length;
   const pendingCount = attributes.filter(a => a.status === 'pending' || a.status === 'expiring').length;
+
+  // Get only pending attributes for verification
+  const getPendingAttributes = () => {
+    return attributes
+      .filter(a => a.status === 'pending' || a.status === 'expiring')
+      .map(a => a.name.toLowerCase().replace(' ', '_'));
+  };
+
+  // Handle clicking "Verify More Attributes" button
+  const handleVerifyMoreClick = () => {
+    const pendingAttrs = getPendingAttributes();
+    setAttributesRequiringProof(pendingAttrs);
+    const methods = getRecommendedMethods(pendingAttrs);
+    setRecommendedMethods(methods);
+    setSelectedMethod(methods[0]);
+    setActiveTab('verify');
+    setVerifyStep(1);
+  };
 
   const menuItems = [
     { id: 'profile', label: 'My Profile', icon: '👤' },
@@ -261,7 +331,7 @@ export default function RespondentDashboard() {
                   <p className="text-gray-500">Welcome back, {user.fullName || 'User'}</p>
                 </div>
                 <button
-                  onClick={() => setActiveTab('verify')}
+                  onClick={handleVerifyMoreClick}
                   className="flex items-center gap-2 px-5 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -353,7 +423,7 @@ export default function RespondentDashboard() {
               <div className="flex items-center justify-between mb-6">
                 <h1 className="text-2xl font-bold text-gray-900">Verified Attributes</h1>
                 <button
-                  onClick={() => setActiveTab('verify')}
+                  onClick={handleVerifyMoreClick}
                   className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -697,7 +767,7 @@ export default function RespondentDashboard() {
                 </div>
               )}
 
-              {/* Step 3: LinkedIn Login / Document Upload / Email Verification */}
+              {/* Step 3: LinkedIn OAuth / Document Upload / Email Verification */}
               {verifyStep === 3 && selectedMethod === 'linkedin' && (
                 <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden max-w-md mx-auto">
                   {/* LinkedIn Header */}
@@ -705,70 +775,108 @@ export default function RespondentDashboard() {
                     <svg className="w-10 h-10 text-white mx-auto mb-2" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/>
                     </svg>
-                    <h2 className="text-white text-xl font-semibold">Sign in to LinkedIn</h2>
+                    <h2 className="text-white text-xl font-semibold">Connect with LinkedIn</h2>
                   </div>
 
-                  {/* Login Form */}
+                  {/* OAuth Connect */}
                   <div className="p-8">
                     <p className="text-gray-600 text-sm text-center mb-6">
-                      Connect your LinkedIn account to verify your professional attributes
+                      Connect your LinkedIn account to verify your professional attributes securely via OAuth.
                     </p>
 
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Email or Phone</label>
-                        <input
-                          type="email"
-                          value={linkedinEmail}
-                          onChange={(e) => setLinkedinEmail(e.target.value)}
-                          placeholder="Enter your email"
-                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                        />
+                    {/* Attributes being verified */}
+                    {attributesRequiringProof.length > 0 && (
+                      <div className="mb-6 p-4 bg-blue-50 rounded-xl border border-blue-200">
+                        <p className="text-xs text-blue-600 uppercase font-semibold mb-2">Attributes to Verify</p>
+                        <div className="flex flex-wrap gap-2">
+                          {attributesRequiringProof.map((attr, idx) => (
+                            <span
+                              key={idx}
+                              className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium"
+                            >
+                              {formatAttributeName(attr)}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                        <input
-                          type="password"
-                          value={linkedinPassword}
-                          onChange={(e) => setLinkedinPassword(e.target.value)}
-                          placeholder="Enter your password"
-                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                        />
-                      </div>
+                    )}
 
-                      <button
-                        onClick={() => {
-                          if (linkedinEmail && linkedinPassword) {
-                            setIsLoggingIn(true);
-                            // Simulate login delay
-                            setTimeout(() => {
-                              setIsLoggingIn(false);
-                              setVerifyStep(4);
-                            }, 1500);
+                    <div className="mb-6 p-4 bg-green-50 rounded-lg border border-green-200">
+                      <div className="flex items-start gap-3">
+                        <svg className="w-5 h-5 text-green-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                        </svg>
+                        <div>
+                          <p className="text-sm text-green-800 font-medium">Secure OAuth Authentication</p>
+                          <p className="text-xs text-green-600 mt-1">
+                            You'll be redirected to LinkedIn to sign in. We never see your password.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {linkedinEmail && (
+                      <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                        {linkedinEmail}
+                      </div>
+                    )}
+
+                    <button
+                      onClick={async () => {
+                        setIsLoggingIn(true);
+                        setLinkedinEmail('');
+                        try {
+                          const serverUrl = 'http://localhost:5000';
+
+                          // Store pending verification data
+                          localStorage.setItem('pendingLinkedInVerification', JSON.stringify({
+                            respondentId: user.respondentId || user.id,
+                            fromDashboard: true
+                          }));
+
+                          // Store attributes for callback
+                          localStorage.setItem('attributesRequiringProof', JSON.stringify(attributesRequiringProof));
+
+                          // Get LinkedIn auth URL
+                          const response = await fetch(`${serverUrl}/api/auth/linkedin`);
+                          const data = await response.json();
+
+                          if (data.success && data.authUrl) {
+                            window.location.href = data.authUrl;
+                          } else {
+                            setLinkedinEmail(data.error || 'Failed to initialize LinkedIn authentication');
+                            setIsLoggingIn(false);
                           }
-                        }}
-                        disabled={!linkedinEmail || !linkedinPassword || isLoggingIn}
-                        className="w-full py-3 bg-[#0077B5] text-white rounded-full font-semibold hover:bg-[#006097] transition disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isLoggingIn ? (
-                          <span className="flex items-center justify-center gap-2">
-                            <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-                            </svg>
-                            Signing in...
-                          </span>
-                        ) : 'Sign in'}
-                      </button>
-                    </div>
-
-                    <div className="mt-6 text-center">
-                      <a href="#" className="text-[#0077B5] text-sm font-medium hover:underline">Forgot password?</a>
-                    </div>
+                        } catch (err) {
+                          console.error('LinkedIn auth error:', err);
+                          setLinkedinEmail('Failed to connect to server. Please try again.');
+                          setIsLoggingIn(false);
+                        }
+                      }}
+                      disabled={isLoggingIn}
+                      className="w-full py-4 bg-[#0077B5] text-white rounded-full font-semibold hover:bg-[#006097] transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      {isLoggingIn ? (
+                        <>
+                          <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                          </svg>
+                          Connecting...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/>
+                          </svg>
+                          Continue with LinkedIn
+                        </>
+                      )}
+                    </button>
 
                     <div className="mt-6 pt-6 border-t border-gray-200 text-center">
                       <p className="text-gray-500 text-xs">
-                        By signing in, you agree to share your professional information for verification purposes.
+                        By continuing, you agree to share your professional information for verification purposes.
                       </p>
                     </div>
 

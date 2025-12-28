@@ -4,7 +4,7 @@ export default function Hero() {
   return (
     <section className="bg-gradient-to-b from-gray-50 to-white py-20 px-4">
       <div className="container mx-auto text-center max-w-4xl">
-        <p className="text-gray-600 mb-4 text-sm font-medium">Trusted by 50+ Research Companies</p>
+       
         
         <h1 className="text-5xl md:text-6xl font-bold text-gray-900 mb-4">
           Verify Survey Respondents

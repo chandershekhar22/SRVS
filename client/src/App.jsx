@@ -10,6 +10,9 @@ import Panelists from './pages/Panelists';
 import InsightRespondents from './pages/InsightRespondents';
 import Verify from './pages/Verify';
 import VerificationSuccess from './pages/VerificationSuccess';
+import LinkedInCallback from './pages/LinkedInCallback';
+import VerificationDashboard from './pages/VerificationDashboard';
+import VerifyDocument from './pages/VerifyDocument';
 import './App.css';
 
 function App() {
@@ -27,6 +30,9 @@ function App() {
           <Route path="/dashboard/respondent" element={<RespondentDashboard />} />
           <Route path="/verify/:token" element={<Verify />} />
           <Route path="/verification-success" element={<VerificationSuccess />} />
+          <Route path="/auth/linkedin/callback" element={<LinkedInCallback />} />
+          <Route path="/verification-dashboard" element={<VerificationDashboard />} />
+          <Route path="/verify-document" element={<VerifyDocument />} />
         </Routes>
       </Router>
     </AutoSyncProvider>

@@ -27,10 +27,11 @@ export default function Verify() {
   }, [token]);
 
   const validateToken = async () => {
-    const panelApiUrl = localStorage.getItem('panelApiUrl') || 'http://localhost:3001';
+    // Use the real server for verification (not mock-api)
+    const serverUrl = 'http://localhost:5000';
 
     try {
-      const response = await fetch(`${panelApiUrl}/api/verify/${token}`);
+      const response = await fetch(`${serverUrl}/api/verify/${token}`);
 
       if (response.ok) {
         const data = await response.json();

@@ -92,24 +92,19 @@ export default function InsightRespondents() {
   };
 
   const handleSendVerificationEmails = async (sendToAll = false) => {
-    const panelApiUrl = localStorage.getItem('insightApiUrl');
-    const apiKey = localStorage.getItem('insightApiKey');
-
-    if (!panelApiUrl) {
-      setMessage('Please configure Panel API URL first');
-      return;
-    }
+    // Use the real server for email sending (not mock-api)
+    const serverUrl = 'http://localhost:5000';
 
     if (!smtpCredentials.user || !smtpCredentials.pass) {
       setMessage('Please enter your SMTP credentials');
       return;
     }
 
-    const idsToSend = sendToAll
-      ? unverifiedPanelists.filter(p => !p.emailSent).map(p => p.id)
-      : selectedPanelists;
+    const respondentsToSend = sendToAll
+      ? unverifiedPanelists.filter(p => !p.emailSent)
+      : unverifiedPanelists.filter(p => selectedPanelists.includes(p.id));
 
-    if (idsToSend.length === 0) {
+    if (respondentsToSend.length === 0) {
       setMessage(sendToAll ? 'No pending respondents to send emails' : 'Please select respondents first');
       return;
     }
@@ -118,17 +113,23 @@ export default function InsightRespondents() {
     setEmailResults(null);
 
     try {
-      const response = await fetch(`${panelApiUrl}/api/email/send-bulk`, {
+      // Send full respondent data (including email, name) to server
+      const response = await fetch(`${serverUrl}/api/email/send-bulk`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          respondentIds: idsToSend,
+          respondents: respondentsToSend.map(p => ({
+            id: p.id,
+            email: p._privateData?.email || p.email,
+            name: p._privateData?.name || p.name,
+            attributesRequiringProof: p.attributesRequiringProof
+          })),
           baseUrl: window.location.origin,
           smtpUser: smtpCredentials.user,
-          smtpPass: smtpCredentials.pass
+          smtpPass: smtpCredentials.pass,
+          companyType: 'insight'
         })
       });
 
@@ -136,8 +137,9 @@ export default function InsightRespondents() {
         const data = await response.json();
         setEmailResults(data);
 
+        const sentIds = respondentsToSend.map(p => p.id);
         const updatedPanelists = panelists.map(p =>
-          idsToSend.includes(p.id)
+          sentIds.includes(p.id)
             ? { ...p, emailSent: true, emailSentAt: new Date().toISOString() }
             : p
         );
@@ -154,7 +156,7 @@ export default function InsightRespondents() {
         setMessage(errorData.error || 'Failed to send emails. Check SMTP credentials.');
       }
     } catch (error) {
-      setMessage(`Error: Cannot connect to ${panelApiUrl}`);
+      setMessage('Error: Cannot connect to server');
     }
 
     setSendingEmails(false);
@@ -166,7 +168,7 @@ export default function InsightRespondents() {
       <div className="bg-white border-b border-gray-200 px-8 py-6">
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Respondents</h1>
+            <h1 className="text-3xl font-bold text-gray-900">Panelists</h1>
             <p className="text-gray-600 mt-1">ZKP Mode: Displaying respondent IDs and encrypted data only</p>
           </div>
           <button
