@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import config from '../config';
 
 // Attribute categories for verification method recommendations
 const DOCUMENT_ATTRIBUTES = ['age', 'gender', 'income', 'location', 'education'];
@@ -42,8 +43,8 @@ export default function LinkedInCallback() {
 
       try {
         // Use the real server for LinkedIn OAuth (not mock-api)
-        const serverUrl = 'http://localhost:5000';
-        const panelApiUrl = localStorage.getItem('panelApiUrl') || 'http://localhost:3001';
+        const serverUrl = config.API_URL;
+        const panelApiUrl = localStorage.getItem('panelApiUrl') || config.MOCK_API_URL;
 
         // Exchange code for token via real backend
         const response = await fetch(`${serverUrl}/api/auth/linkedin/callback`, {

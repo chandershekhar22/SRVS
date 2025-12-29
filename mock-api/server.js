@@ -19,18 +19,119 @@ app.use(express.json());
 // Store for mock respondents (simulates external panel database)
 let mockRespondents = [];
 
-// Sample ZKP queries that panel companies might ask
+// Generate ZKP query based on selected attributes and respondent data
+const generateZkpQueryFromAttributes = (attributesRequiringProof, respondentData = {}) => {
+  if (!attributesRequiringProof || attributesRequiringProof.length === 0) {
+    return {
+      query: "age >= 18 AND age <= 65",
+      conditions: [{ attr: 'age', op: '>=', value: 18 }, { attr: 'age', op: '<=', value: 65 }],
+      logic: 'AND'
+    };
+  }
+
+  const conditions = [];
+  const queryParts = [];
+
+  attributesRequiringProof.forEach(attr => {
+    const attrLower = attr.toLowerCase().replace(' ', '_');
+
+    switch (attrLower) {
+      case 'age':
+        // Always use age range
+        const age = respondentData.age || 30;
+        const minAge = Math.max(18, age - 5);
+        const maxAge = Math.min(65, age + 10);
+        queryParts.push(`age >= ${minAge} AND age <= ${maxAge}`);
+        conditions.push({ attr: 'age', op: '>=', value: minAge });
+        conditions.push({ attr: 'age', op: '<=', value: maxAge });
+        break;
+
+      case 'income':
+        // Use income range
+        const income = respondentData.income || 50000;
+        const minIncome = Math.floor(income * 0.8);
+        const maxIncome = Math.floor(income * 1.5);
+        queryParts.push(`income >= ${minIncome} AND income <= ${maxIncome}`);
+        conditions.push({ attr: 'income', op: '>=', value: minIncome });
+        conditions.push({ attr: 'income', op: '<=', value: maxIncome });
+        break;
+
+      case 'gender':
+        const gender = respondentData.gender || 'Male';
+        queryParts.push(`gender = '${gender}'`);
+        conditions.push({ attr: 'gender', op: '=', value: gender });
+        break;
+
+      case 'location':
+        const location = respondentData.location || 'New York';
+        queryParts.push(`location = '${location}'`);
+        conditions.push({ attr: 'location', op: '=', value: location });
+        break;
+
+      case 'education':
+        const education = respondentData.education || 'Bachelor';
+        queryParts.push(`education = '${education}'`);
+        conditions.push({ attr: 'education', op: '=', value: education });
+        break;
+
+      case 'occupation':
+      case 'job_title':
+        const jobTitle = respondentData.job_title || respondentData.occupation || 'Engineer';
+        queryParts.push(`job_title = '${jobTitle}'`);
+        conditions.push({ attr: 'job_title', op: '=', value: jobTitle });
+        break;
+
+      case 'industry':
+        const industry = respondentData.industry || 'Technology';
+        queryParts.push(`industry = '${industry}'`);
+        conditions.push({ attr: 'industry', op: '=', value: industry });
+        break;
+
+      case 'seniority':
+        const seniority = respondentData.seniority || 'Mid';
+        queryParts.push(`seniority = '${seniority}'`);
+        conditions.push({ attr: 'seniority', op: '=', value: seniority });
+        break;
+
+      case 'department':
+        const department = respondentData.department || 'Engineering';
+        queryParts.push(`department = '${department}'`);
+        conditions.push({ attr: 'department', op: '=', value: department });
+        break;
+
+      case 'company_size':
+        const companySize = respondentData.company_size || '51-200';
+        queryParts.push(`company_size = '${companySize}'`);
+        conditions.push({ attr: 'company_size', op: '=', value: companySize });
+        break;
+
+      default:
+        if (respondentData[attrLower]) {
+          queryParts.push(`${attrLower} = '${respondentData[attrLower]}'`);
+          conditions.push({ attr: attrLower, op: '=', value: respondentData[attrLower] });
+        }
+    }
+  });
+
+  return {
+    query: queryParts.length > 0 ? queryParts.join(' AND ') : "age >= 18 AND age <= 65",
+    conditions,
+    logic: 'AND'
+  };
+};
+
+// Legacy: Sample ZKP queries (kept for backward compatibility)
 const zkpQueryTemplates = [
-  { query: "age > 25 AND occupation = 'Doctor'", conditions: [{ attr: 'age', op: '>', value: 25 }, { attr: 'occupation', op: '=', value: 'Doctor' }], logic: 'AND' },
-  { query: "age >= 20 AND income > 50000", conditions: [{ attr: 'age', op: '>=', value: 20 }, { attr: 'income', op: '>', value: 50000 }], logic: 'AND' },
-  { query: "education = 'Master' OR education = 'PhD'", conditions: [{ attr: 'education', op: '=', value: 'Master' }, { attr: 'education', op: '=', value: 'PhD' }], logic: 'OR' },
-  { query: "location = 'New York' AND age >= 30", conditions: [{ attr: 'location', op: '=', value: 'New York' }, { attr: 'age', op: '>=', value: 30 }], logic: 'AND' },
-  { query: "occupation = 'Engineer' AND income >= 60000", conditions: [{ attr: 'occupation', op: '=', value: 'Engineer' }, { attr: 'income', op: '>=', value: 60000 }], logic: 'AND' },
-  { query: "age > 21 AND education != 'High School'", conditions: [{ attr: 'age', op: '>', value: 21 }, { attr: 'education', op: '!=', value: 'High School' }], logic: 'AND' },
-  { query: "income >= 40000 AND location = 'Chicago'", conditions: [{ attr: 'income', op: '>=', value: 40000 }, { attr: 'location', op: '=', value: 'Chicago' }], logic: 'AND' },
-  { query: "occupation = 'Teacher' OR occupation = 'Manager'", conditions: [{ attr: 'occupation', op: '=', value: 'Teacher' }, { attr: 'occupation', op: '=', value: 'Manager' }], logic: 'OR' },
-  { query: "age >= 18 AND age <= 35", conditions: [{ attr: 'age', op: '>=', value: 18 }, { attr: 'age', op: '<=', value: 35 }], logic: 'AND' },
-  { query: "education = 'Bachelor' AND occupation = 'Analyst'", conditions: [{ attr: 'education', op: '=', value: 'Bachelor' }, { attr: 'occupation', op: '=', value: 'Analyst' }], logic: 'AND' }
+  { query: "age >= 20 AND age <= 40 AND job_title = 'Engineer'", conditions: [{ attr: 'age', op: '>=', value: 20 }, { attr: 'age', op: '<=', value: 40 }, { attr: 'job_title', op: '=', value: 'Engineer' }], logic: 'AND' },
+  { query: "age >= 25 AND age <= 45 AND income >= 40000 AND income <= 100000", conditions: [{ attr: 'age', op: '>=', value: 25 }, { attr: 'age', op: '<=', value: 45 }, { attr: 'income', op: '>=', value: 40000 }, { attr: 'income', op: '<=', value: 100000 }], logic: 'AND' },
+  { query: "education = 'Master' AND seniority = 'Senior'", conditions: [{ attr: 'education', op: '=', value: 'Master' }, { attr: 'seniority', op: '=', value: 'Senior' }], logic: 'AND' },
+  { query: "location = 'New York' AND age >= 25 AND age <= 50", conditions: [{ attr: 'location', op: '=', value: 'New York' }, { attr: 'age', op: '>=', value: 25 }, { attr: 'age', op: '<=', value: 50 }], logic: 'AND' },
+  { query: "job_title = 'Manager' AND income >= 60000 AND income <= 150000", conditions: [{ attr: 'job_title', op: '=', value: 'Manager' }, { attr: 'income', op: '>=', value: 60000 }, { attr: 'income', op: '<=', value: 150000 }], logic: 'AND' },
+  { query: "age >= 18 AND age <= 35 AND gender = 'Female'", conditions: [{ attr: 'age', op: '>=', value: 18 }, { attr: 'age', op: '<=', value: 35 }, { attr: 'gender', op: '=', value: 'Female' }], logic: 'AND' },
+  { query: "income >= 50000 AND income <= 120000 AND location = 'Chicago'", conditions: [{ attr: 'income', op: '>=', value: 50000 }, { attr: 'income', op: '<=', value: 120000 }, { attr: 'location', op: '=', value: 'Chicago' }], logic: 'AND' },
+  { query: "department = 'Engineering' AND seniority = 'Lead'", conditions: [{ attr: 'department', op: '=', value: 'Engineering' }, { attr: 'seniority', op: '=', value: 'Lead' }], logic: 'AND' },
+  { query: "age >= 30 AND age <= 55 AND education = 'PhD'", conditions: [{ attr: 'age', op: '>=', value: 30 }, { attr: 'age', op: '<=', value: 55 }, { attr: 'education', op: '=', value: 'PhD' }], logic: 'AND' },
+  { query: "industry = 'Technology' AND company_size = '201-500'", conditions: [{ attr: 'industry', op: '=', value: 'Technology' }, { attr: 'company_size', op: '=', value: '201-500' }], logic: 'AND' }
 ];
 
 // Function to evaluate ZKP query against actual data
@@ -166,8 +267,9 @@ const addTestRespondent = () => {
     education: 'Bachelor'
   };
 
-  // Assign a specific test query
-  const testZkpQuery = { query: "age >= 20 AND occupation = 'Engineer'", conditions: [{ attr: 'age', op: '>=', value: 20 }, { attr: 'occupation', op: '=', value: 'Engineer' }], logic: 'AND' };
+  // Generate query based on test attributes
+  const testAttrs = ['age', 'occupation', 'income', 'education'];
+  const testZkpQuery = generateZkpQueryFromAttributes(testAttrs, testData);
 
   const testRespondent = {
     id: `RSP-TEST-${crypto.randomBytes(4).toString('hex')}`,
@@ -179,7 +281,7 @@ const addTestRespondent = () => {
     zkpQueryLogic: testZkpQuery.logic,
     zkpResult: 'pending',
     // Add default attributes for verification
-    attributesRequiringProof: ['age', 'occupation', 'income', 'education'],
+    attributesRequiringProof: testAttrs,
     recommendedVerificationMethods: ['linkedin', 'document'],
     attributeHashes: {
       age: crypto.createHash('sha256').update(`age:${testData.age}:${salt}`).digest('hex'),
@@ -259,8 +361,9 @@ app.post('/api/sync', (req, res) => {
     education: 'Master'
   };
 
-  // Assign a test query for the test respondent
-  const testSyncQuery = { query: "age >= 25 AND income >= 50000", conditions: [{ attr: 'age', op: '>=', value: 25 }, { attr: 'income', op: '>=', value: 50000 }], logic: 'AND' };
+  // Generate query based on test attributes
+  const testAttributes = ['age', 'income', 'occupation', 'education'];
+  const testSyncQuery = generateZkpQueryFromAttributes(testAttributes, testEmailData);
 
   const testEmailRespondent = {
     id: `RSP-${effectivePanelId}-TEST-${crypto.randomBytes(4).toString('hex')}`,
@@ -272,7 +375,7 @@ app.post('/api/sync', (req, res) => {
     zkpQueryLogic: testSyncQuery.logic,
     zkpResult: 'pending',
     // Add default attributes for verification
-    attributesRequiringProof: ['age', 'income', 'occupation', 'education'],
+    attributesRequiringProof: testAttributes,
     recommendedVerificationMethods: ['linkedin', 'document'],
     attributeHashes: {
       age: crypto.createHash('sha256').update(`age:${testEmailData.age}:${salt}`).digest('hex'),
@@ -316,11 +419,17 @@ app.post('/api/sync', (req, res) => {
     const selectedAttributes = shuffled.slice(0, attrCount);
     const recommendedMethods = getRecommendedMethods(selectedAttributes);
 
+    // Generate ZKP query based on selected attributes and respondent data
+    const zkpQueryObj = generateZkpQueryFromAttributes(selectedAttributes, r._privateData);
+
     // Store attributes in the mockRespondents array so they persist for verification
     const respondentInDb = mockRespondents.find(resp => resp.id === r.id);
     if (respondentInDb) {
       respondentInDb.attributesRequiringProof = selectedAttributes;
       respondentInDb.recommendedVerificationMethods = recommendedMethods;
+      respondentInDb.zkpQuery = zkpQueryObj.query;
+      respondentInDb.zkpQueryConditions = zkpQueryObj.conditions;
+      respondentInDb.zkpQueryLogic = zkpQueryObj.logic;
     }
 
     return {
@@ -330,8 +439,8 @@ app.post('/api/sync', (req, res) => {
       attributesRequiringProof: selectedAttributes,
       recommendedVerificationMethods: recommendedMethods,
       attributeHashes: r.attributeHashes,
-      // Include ZKP Query and Result
-      zkpQuery: r.zkpQuery,
+      // Include ZKP Query based on selected attributes
+      zkpQuery: zkpQueryObj.query,
       zkpResult: r.zkpResult,
       syncedAt: timestamp,
       // Include email and name for verification emails (demo/testing only)

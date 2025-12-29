@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import config from '../config';
 
 export default function Panelists() {
   const navigate = useNavigate();
@@ -25,7 +26,7 @@ export default function Panelists() {
     if (savedPanelists.length > 0) {
       try {
         // Fetch verification status from server
-        const response = await fetch('http://localhost:5000/api/verification/status', {
+        const response = await fetch(`${config.API_URL}/api/verification/status`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -121,7 +122,7 @@ export default function Panelists() {
       );
 
       // Request ZK proof verification for selected respondents
-      const response = await fetch('http://localhost:5000/api/proof/request', {
+      const response = await fetch(`${config.API_URL}/api/proof/request`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -167,7 +168,7 @@ export default function Panelists() {
   // Send verification emails to all pending respondents
   const handleSendVerificationEmails = async (sendToAll = false) => {
     // Use the real server for email sending (not mock-api)
-    const serverUrl = 'http://localhost:5000';
+    const serverUrl = config.API_URL;
 
     // Validate SMTP credentials
     if (!smtpCredentials.user || !smtpCredentials.pass) {

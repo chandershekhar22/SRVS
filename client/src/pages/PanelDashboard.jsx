@@ -183,6 +183,93 @@ export default function PanelDashboard() {
     }
   };
 
+  // Generate ZKP query based on selected attributes
+  const generateZkpQuery = (attributesRequiringProof, rowData = {}) => {
+    if (!attributesRequiringProof || attributesRequiringProof.length === 0) {
+      return "age >= 18 AND age <= 65";
+    }
+
+    const conditions = [];
+
+    attributesRequiringProof.forEach(attr => {
+      const attrLower = attr.toLowerCase().replace(' ', '_');
+
+      switch (attrLower) {
+        case 'age':
+          // Always use age range
+          const minAge = rowData.age ? Math.max(18, rowData.age - 5) : 18;
+          const maxAge = rowData.age ? Math.min(65, rowData.age + 10) : 45;
+          conditions.push(`age >= ${minAge} AND age <= ${maxAge}`);
+          break;
+
+        case 'income':
+          // Use income range
+          const baseIncome = rowData.income || 50000;
+          const minIncome = Math.floor(baseIncome * 0.8);
+          const maxIncome = Math.floor(baseIncome * 1.5);
+          conditions.push(`income >= ${minIncome} AND income <= ${maxIncome}`);
+          break;
+
+        case 'gender':
+          const genders = ['Male', 'Female', 'Other'];
+          const gender = rowData.gender || genders[Math.floor(Math.random() * 2)];
+          conditions.push(`gender = '${gender}'`);
+          break;
+
+        case 'location':
+          const locations = ['New York', 'Chicago', 'Los Angeles', 'Houston', 'Phoenix'];
+          const location = rowData.location || locations[Math.floor(Math.random() * locations.length)];
+          conditions.push(`location = '${location}'`);
+          break;
+
+        case 'education':
+          const educationLevels = ['High School', 'Bachelor', 'Master', 'PhD'];
+          const education = rowData.education || educationLevels[Math.floor(Math.random() * educationLevels.length)];
+          conditions.push(`education = '${education}'`);
+          break;
+
+        case 'occupation':
+        case 'job_title':
+          const occupations = ['Engineer', 'Manager', 'Analyst', 'Developer', 'Designer'];
+          const occupation = rowData.occupation || rowData.job_title || occupations[Math.floor(Math.random() * occupations.length)];
+          conditions.push(`job_title = '${occupation}'`);
+          break;
+
+        case 'industry':
+          const industries = ['Technology', 'Finance', 'Healthcare', 'Retail', 'Manufacturing'];
+          const industry = rowData.industry || industries[Math.floor(Math.random() * industries.length)];
+          conditions.push(`industry = '${industry}'`);
+          break;
+
+        case 'seniority':
+          const seniorityLevels = ['Entry', 'Mid', 'Senior', 'Lead', 'Executive'];
+          const seniority = rowData.seniority || seniorityLevels[Math.floor(Math.random() * seniorityLevels.length)];
+          conditions.push(`seniority = '${seniority}'`);
+          break;
+
+        case 'department':
+          const departments = ['Engineering', 'Marketing', 'Sales', 'HR', 'Finance'];
+          const department = rowData.department || departments[Math.floor(Math.random() * departments.length)];
+          conditions.push(`department = '${department}'`);
+          break;
+
+        case 'company_size':
+          const sizes = ['1-50', '51-200', '201-500', '501-1000', '1000+'];
+          const companySize = rowData.company_size || sizes[Math.floor(Math.random() * sizes.length)];
+          conditions.push(`company_size = '${companySize}'`);
+          break;
+
+        default:
+          // For any other attribute
+          if (rowData[attrLower]) {
+            conditions.push(`${attrLower} = '${rowData[attrLower]}'`);
+          }
+      }
+    });
+
+    return conditions.length > 0 ? conditions.join(' AND ') : "age >= 18 AND age <= 65";
+  };
+
   // Simple hash function for client-side hashing (for demo purposes)
   const simpleHash = (str) => {
     let hash = 0;
@@ -212,7 +299,7 @@ export default function PanelDashboard() {
         location: 'New York',
         occupation: 'Engineer',
         education: 'Bachelor',
-        zkpQuery: "age >= 25 AND occupation = 'Engineer'"
+        zkpQuery: "age >= 23 AND age <= 38 AND job_title = 'Engineer'"
       },
       {
         name: 'Jane Smith',
@@ -222,7 +309,7 @@ export default function PanelDashboard() {
         location: 'Chicago',
         occupation: 'Manager',
         education: 'Master',
-        zkpQuery: "income > 60000 AND education = 'Master'"
+        zkpQuery: "income >= 57600 AND income <= 108000 AND education = 'Master'"
       }
     ];
 
@@ -301,6 +388,9 @@ export default function PanelDashboard() {
           }
         });
 
+        // Generate ZKP query based on selected attributes
+        const zkpQuery = row.zkpQuery || generateZkpQuery(attributesRequiringProof, row);
+
         return {
           id: respondentId,
           hashedData,
@@ -310,7 +400,7 @@ export default function PanelDashboard() {
           attributeHashes,
           syncedAt: new Date().toISOString(),
           emailSent: false,
-          zkpQuery: row.zkpQuery || "age >= 18",
+          zkpQuery,
           zkpResult: 'pending',
           source: 'excel'
         };

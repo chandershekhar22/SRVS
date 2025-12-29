@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import config from '../config';
 
 // Attribute categories for verification method recommendations
 const DOCUMENT_ATTRIBUTES = ['age', 'gender', 'income', 'location', 'education'];
@@ -161,7 +162,7 @@ export default function VerificationDashboard() {
 
     if (verificationToken) {
       try {
-        const response = await fetch(`http://localhost:5000/api/verify/${verificationToken}/complete`, {
+        const response = await fetch(`${config.API_URL}/api/verify/${verificationToken}/complete`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import config from '../config';
 
 // Attribute categories for verification method recommendations
 const DOCUMENT_ATTRIBUTES = ['age', 'gender', 'income', 'location', 'education'];
@@ -28,7 +29,7 @@ export default function Verify() {
 
   const validateToken = async () => {
     // Use the real server for verification (not mock-api)
-    const serverUrl = 'http://localhost:5000';
+    const serverUrl = config.API_URL;
 
     try {
       const response = await fetch(`${serverUrl}/api/verify/${token}`);

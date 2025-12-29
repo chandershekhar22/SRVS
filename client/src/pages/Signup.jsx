@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Header from '../components/Header';
+import config from '../config';
 
 // Attribute categories for verification method
 const DOCUMENT_ATTRIBUTES = ['age', 'gender', 'income', 'location', 'education'];
@@ -165,7 +166,7 @@ export default function Signup() {
       }
 
       // Use the real server for verification (not mock-api)
-      const serverUrl = 'http://localhost:5000';
+      const serverUrl = config.API_URL;
       const response = await fetch(`${serverUrl}/api/verify/${respondentVerification.token}/complete`, {
         method: 'POST',
         headers: {
@@ -246,7 +247,7 @@ export default function Signup() {
     }
 
     try {
-      const response = await fetch('http://localhost:5000/api/auth/register', {
+      const response = await fetch(`${config.API_URL}/api/auth/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -587,7 +588,7 @@ export default function Signup() {
                         setError('');
                         try {
                           // Use the real server for LinkedIn OAuth (not mock-api)
-                          const serverUrl = 'http://localhost:5000';
+                          const serverUrl = config.API_URL;
 
                           // Store verification data for callback
                           localStorage.setItem('pendingLinkedInVerification', JSON.stringify({
