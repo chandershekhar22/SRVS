@@ -6,11 +6,15 @@ import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import surveyRoutes from './routes/surveys.js';
 import syncRoutes from './routes/sync.js';
+import authRoutes from './routes/auth.js';
 
 dotenv.config();
 
 // Store for verification tokens
 const verificationTokens = new Map();
+
+// Store for completed verifications (persists after token expiry)
+const completedVerifications = new Map();
 
 // Store for sent emails (for logging)
 const sentEmails = [];
@@ -66,6 +70,9 @@ app.use('/api/surveys', surveyRoutes);
 
 // Sync routes
 app.use('/api', syncRoutes);
+
+// Auth routes (register, login, me)
+app.use('/api/auth', authRoutes);
 
 // Root route
 app.get('/', (req, res) => {
@@ -419,7 +426,7 @@ app.get('/api/verify/:token', (req, res) => {
 // Complete verification (after user submits proof)
 app.post('/api/verify/:token/complete', (req, res) => {
   const { token } = req.params;
-  const { proofData } = req.body;
+  const { proofData, verifiedAttributes, verificationMethod } = req.body;
 
   const tokenData = verificationTokens.get(token);
 
@@ -427,21 +434,93 @@ app.post('/api/verify/:token/complete', (req, res) => {
     return res.status(404).json({ error: 'Invalid token' });
   }
 
-  if (tokenData.used) {
-    return res.status(410).json({ error: 'Token already used' });
+  // Allow multiple calls for partial verification (LinkedIn then Document)
+  // Only block if already fully verified
+  if (tokenData.used && tokenData.proofStatus === 'verified') {
+    return res.status(410).json({ error: 'Token already used and fully verified' });
   }
 
-  // Mark token as used
-  tokenData.used = true;
-  tokenData.usedAt = new Date().toISOString();
+  // Get required attributes
+  const requiredAttributes = tokenData.attributesRequiringProof || [];
+  const verified = verifiedAttributes || [];
 
-  console.log(`[VERIFICATION] Completed for respondent: ${tokenData.respondentId}`);
+  // Calculate proof status based on verification progress
+  // pending = not started, partial = some verified, verified = all verified
+  let proofStatus = 'pending';
+  let zkpResult = 'Pending';
+
+  if (verified.length >= requiredAttributes.length && requiredAttributes.length > 0) {
+    proofStatus = 'verified';
+    zkpResult = 'Yes'; // When fully verified, ZKP result is Yes (criteria matched)
+  } else if (verified.length > 0) {
+    proofStatus = 'partial';
+    zkpResult = 'Pending'; // Still pending until fully verified
+  }
+
+  // Store verification details in token data
+  tokenData.verifiedAttributes = verified;
+  tokenData.verificationMethod = verificationMethod;
+  tokenData.proofStatus = proofStatus;
+
+  // Only mark token as fully used when verification is complete
+  if (proofStatus === 'verified') {
+    tokenData.used = true;
+    tokenData.usedAt = new Date().toISOString();
+  }
+
+  // Store completed verification (persists even after token expires)
+  completedVerifications.set(tokenData.respondentId, {
+    respondentId: tokenData.respondentId,
+    proofStatus,
+    zkpResult,
+    verifiedAttributes: verified,
+    requiredAttributes,
+    verificationMethod,
+    completedAt: new Date().toISOString()
+  });
+
+  console.log(`[VERIFICATION] ===============================`);
+  console.log(`[VERIFICATION] Respondent: ${tokenData.respondentId}`);
+  console.log(`[VERIFICATION] Method: ${verificationMethod}`);
+  console.log(`[VERIFICATION] Required attrs: ${JSON.stringify(requiredAttributes)}`);
+  console.log(`[VERIFICATION] Verified attrs: ${JSON.stringify(verified)}`);
+  console.log(`[VERIFICATION] Status: ${proofStatus}, Verified: ${verified.length}/${requiredAttributes.length} attributes`);
+  console.log(`[VERIFICATION] ZKP Result: ${zkpResult}`);
+  console.log(`[VERIFICATION] ===============================`);
 
   res.json({
     success: true,
     message: 'Verification completed successfully',
     respondentId: tokenData.respondentId,
-    zkpResult: 'Yes' // Default to Yes since verification was successful
+    proofStatus,
+    zkpResult,
+    verifiedAttributes: verified,
+    requiredAttributes,
+    verificationMethod
+  });
+});
+
+// Get verification status for multiple respondents
+app.post('/api/verification/status', (req, res) => {
+  const { respondentIds } = req.body;
+
+  if (!respondentIds || !Array.isArray(respondentIds)) {
+    return res.status(400).json({ error: 'respondentIds array is required' });
+  }
+
+  const statuses = {};
+  for (const id of respondentIds) {
+    const verification = completedVerifications.get(id);
+    if (verification) {
+      statuses[id] = verification;
+    }
+  }
+
+  res.json({
+    success: true,
+    verifications: statuses,
+    totalRequested: respondentIds.length,
+    totalFound: Object.keys(statuses).length
   });
 });
 

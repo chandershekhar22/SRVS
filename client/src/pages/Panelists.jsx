@@ -14,15 +14,84 @@ export default function Panelists() {
   const [sendingEmails, setSendingEmails] = useState(false);
   const [smtpCredentials, setSmtpCredentials] = useState({ user: '', pass: '' });
   const [showSmtpForm, setShowSmtpForm] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Function to load panelists and fetch verification status
+  const loadPanelists = async (showRefreshMessage = false) => {
+    if (showRefreshMessage) setRefreshing(true);
+
+    const savedPanelists = JSON.parse(localStorage.getItem('panelists') || '[]');
+
+    if (savedPanelists.length > 0) {
+      try {
+        // Fetch verification status from server
+        const response = await fetch('http://localhost:5000/api/verification/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            respondentIds: savedPanelists.map(p => p.id)
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+
+          // Merge server verification status with local data
+          const updatedPanelists = savedPanelists.map(p => {
+            const serverStatus = data.verifications[p.id];
+            if (serverStatus) {
+              return {
+                ...p,
+                proofStatus: serverStatus.proofStatus,
+                verificationStatus: serverStatus.proofStatus,
+                zkpResult: serverStatus.zkpResult,
+                verifiedAttributes: serverStatus.verifiedAttributes,
+                verificationMethod: serverStatus.verificationMethod,
+                verificationCompletedAt: serverStatus.completedAt
+              };
+            }
+            return p;
+          });
+
+          setPanelists(updatedPanelists);
+          localStorage.setItem('panelists', JSON.stringify(updatedPanelists));
+
+          if (showRefreshMessage) {
+            setMessage(`Status refreshed. ${data.totalFound} verification(s) found.`);
+            setTimeout(() => setMessage(''), 3000);
+          }
+        } else {
+          setPanelists(savedPanelists);
+        }
+      } catch (err) {
+        console.error('Failed to fetch verification status:', err);
+        setPanelists(savedPanelists);
+        if (showRefreshMessage) {
+          setMessage('Failed to refresh status from server.');
+          setTimeout(() => setMessage(''), 3000);
+        }
+      }
+    } else {
+      setPanelists(savedPanelists);
+    }
+
+    if (showRefreshMessage) setRefreshing(false);
+  };
 
   useEffect(() => {
-    // Load panelists from localStorage
-    const savedPanelists = JSON.parse(localStorage.getItem('panelists') || '[]');
-    setPanelists(savedPanelists);
+    loadPanelists();
   }, []);
 
-  // Filter for unverified respondents (ZKP: proofStatus = pending)
-  const unverifiedPanelists = panelists.filter(p => p.verificationStatus === 'unverified' || p.proofStatus === 'pending');
+  // Show all panelists (not filtered - so verified ones show up too)
+  const allPanelists = panelists;
+
+  // Filter for respondents needing attention (pending or partial) - used for email sending
+  const unverifiedPanelists = panelists.filter(p =>
+    p.verificationStatus === 'unverified' ||
+    p.proofStatus === 'pending' ||
+    p.proofStatus === 'partial' ||
+    !p.proofStatus
+  );
 
   const handleSelectAll = (e) => {
     if (e.target.checked) {
@@ -204,10 +273,10 @@ export default function Panelists() {
 
       {/* Content */}
       <div className="p-8">
-        {unverifiedPanelists.length === 0 ? (
+        {allPanelists.length === 0 ? (
           <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
             <div className="text-5xl mb-4">🔐</div>
-            <p className="text-gray-600 text-lg">No pending respondents found</p>
+            <p className="text-gray-600 text-lg">No respondents found</p>
             <p className="text-gray-500 text-sm mt-2">Sync data from your API to load respondent IDs and encrypted data</p>
           </div>
         ) : (
@@ -216,13 +285,35 @@ export default function Panelists() {
             <div className="flex justify-between items-center p-6 border-b border-gray-200">
               <div>
                 <p className="text-sm text-gray-600">
-                  {selectedPanelists.length} of {unverifiedPanelists.length} selected
+                  {selectedPanelists.length} of {allPanelists.length} selected
                 </p>
                 <p className="text-xs text-gray-400 mt-1">
                   {unverifiedPanelists.filter(p => !p.emailSent).length} pending email verification
                 </p>
               </div>
               <div className="flex gap-3">
+                <button
+                  onClick={() => loadPanelists(true)}
+                  disabled={refreshing}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-semibold disabled:opacity-50 transition flex items-center gap-2"
+                >
+                  {refreshing ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                      </svg>
+                      Refreshing...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Refresh Status
+                    </>
+                  )}
+                </button>
                 <button
                   onClick={() => setShowEmailModal(true)}
                   disabled={sendingEmails}
@@ -255,7 +346,7 @@ export default function Panelists() {
                   </tr>
                 </thead>
                 <tbody>
-                  {unverifiedPanelists.map((respondent) => (
+                  {allPanelists.map((respondent) => (
                     <tr key={respondent.id} className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="px-6 py-4">
                         <input
@@ -263,6 +354,7 @@ export default function Panelists() {
                           checked={selectedPanelists.includes(respondent.id)}
                           onChange={() => handleSelectPanelist(respondent.id)}
                           className="w-4 h-4 rounded cursor-pointer"
+                          disabled={respondent.proofStatus === 'verified'}
                         />
                       </td>
                       <td className="px-6 py-4">
@@ -302,13 +394,13 @@ export default function Panelists() {
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        {respondent.proofRequested ? (
-                          <span className="px-3 py-1 bg-blue-100 text-blue-700 text-xs rounded-full font-semibold">
-                            Requested
-                          </span>
-                        ) : respondent.proofStatus === 'verified' ? (
+                        {respondent.proofStatus === 'verified' ? (
                           <span className="px-3 py-1 bg-green-100 text-green-700 text-xs rounded-full font-semibold">
                             Verified
+                          </span>
+                        ) : respondent.proofStatus === 'partial' ? (
+                          <span className="px-3 py-1 bg-blue-100 text-blue-700 text-xs rounded-full font-semibold">
+                            Partial Verified
                           </span>
                         ) : (
                           <span className="px-3 py-1 bg-orange-100 text-orange-700 text-xs rounded-full font-semibold">
@@ -318,19 +410,9 @@ export default function Panelists() {
                       </td>
                       <td className="px-6 py-4">
                         {respondent.proofStatus === 'verified' ? (
-                          respondent.zkpResult === 'Yes' ? (
-                            <span className="px-3 py-1 bg-green-100 text-green-700 text-xs rounded-full font-semibold">
-                              Yes
-                            </span>
-                          ) : respondent.zkpResult === 'No' ? (
-                            <span className="px-3 py-1 bg-red-100 text-red-700 text-xs rounded-full font-semibold">
-                              No
-                            </span>
-                          ) : (
-                            <span className="px-3 py-1 bg-gray-100 text-gray-600 text-xs rounded-full font-semibold">
-                              -
-                            </span>
-                          )
+                          <span className="px-3 py-1 bg-green-100 text-green-700 text-xs rounded-full font-semibold">
+                            Yes
+                          </span>
                         ) : (
                           <span className="px-3 py-1 bg-yellow-100 text-yellow-700 text-xs rounded-full font-semibold">
                             Pending

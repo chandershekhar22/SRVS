@@ -2,6 +2,10 @@ import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Header from '../components/Header';
 
+// Attribute categories for verification method
+const DOCUMENT_ATTRIBUTES = ['age', 'gender', 'income', 'location', 'education'];
+const LINKEDIN_ATTRIBUTES = ['job_title', 'industry', 'company_size', 'occupation', 'seniority', 'department'];
+
 export default function Signup() {
   const location = useLocation();
   const verificationData = location.state;
@@ -143,6 +147,23 @@ export default function Signup() {
     setError('');
 
     try {
+      // Get attributes that will be verified based on the selected method
+      const attributesRequiringProof = respondentVerification?.attributesRequiringProof || [];
+      let verifiedAttributes = [];
+
+      if (selectedMethod === 'linkedin') {
+        verifiedAttributes = attributesRequiringProof.filter(attr =>
+          LINKEDIN_ATTRIBUTES.includes(attr.toLowerCase().replace(' ', '_'))
+        );
+      } else if (selectedMethod === 'document') {
+        verifiedAttributes = attributesRequiringProof.filter(attr =>
+          DOCUMENT_ATTRIBUTES.includes(attr.toLowerCase().replace(' ', '_'))
+        );
+      } else if (selectedMethod === 'email') {
+        // Email verification typically verifies all attributes
+        verifiedAttributes = attributesRequiringProof;
+      }
+
       // Use the real server for verification (not mock-api)
       const serverUrl = 'http://localhost:5000';
       const response = await fetch(`${serverUrl}/api/verify/${respondentVerification.token}/complete`, {
@@ -154,7 +175,9 @@ export default function Signup() {
           proofData: {
             completedAt: new Date().toISOString(),
             method: selectedMethod
-          }
+          },
+          verifiedAttributes: verifiedAttributes,
+          verificationMethod: selectedMethod
         })
       });
 
@@ -166,15 +189,17 @@ export default function Signup() {
 
       const responseData = await response.json();
 
-      // Update local panelists data
+      // Update local panelists data with server response
       const panelists = JSON.parse(localStorage.getItem('panelists') || '[]');
       const updatedPanelists = panelists.map(p => {
         if (p.id === formData.respondentId) {
           return {
             ...p,
-            proofStatus: 'verified',
-            verificationStatus: 'verified',
-            zkpResult: responseData.zkpResult || 'Yes'
+            proofStatus: responseData.proofStatus || 'verified',
+            verificationStatus: responseData.proofStatus || 'verified',
+            zkpResult: responseData.zkpResult || 'Yes',
+            verifiedAttributes: responseData.verifiedAttributes || verifiedAttributes,
+            verificationMethod: selectedMethod
           };
         }
         return p;
@@ -189,7 +214,8 @@ export default function Signup() {
       navigate('/verification-success', {
         state: {
           respondentId: formData.respondentId,
-          zkpResult: responseData.zkpResult
+          zkpResult: responseData.zkpResult,
+          proofStatus: responseData.proofStatus
         }
       });
 
@@ -219,35 +245,38 @@ export default function Signup() {
       return;
     }
 
-    const existingUsers = JSON.parse(localStorage.getItem('users') || '[]');
-    if (existingUsers.some(u => u.email === formData.email)) {
-      setError('Email already registered. Please sign in instead.');
-      return;
-    }
+    try {
+      const response = await fetch('http://localhost:5000/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fullName: formData.fullName,
+          email: formData.email,
+          password: formData.password,
+          role: selectedRole,
+        }),
+      });
 
-    const generatePanelId = () => {
-      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-      let result = 'PNL-';
-      for (let i = 0; i < 6; i++) {
-        result += chars.charAt(Math.floor(Math.random() * chars.length));
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        setError(data.message || 'Failed to create account. Please try again.');
+        return;
       }
-      return result;
-    };
 
-    const newUser = {
-      id: Date.now().toString(),
-      role: selectedRole,
-      fullName: formData.fullName,
-      email: formData.email,
-      password: formData.password,
-      createdAt: new Date().toISOString(),
-      ...(selectedRole === 'panel' && { panelId: generatePanelId() })
-    };
+      // Save token and user to localStorage
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('currentUser', JSON.stringify(data.user));
 
-    existingUsers.push(newUser);
-    localStorage.setItem('users', JSON.stringify(existingUsers));
-    localStorage.setItem('currentUser', JSON.stringify(newUser));
-    navigate(`/dashboard/${selectedRole}`, { state: newUser });
+      // Navigate to dashboard based on role
+      navigate(`/dashboard/${data.user.role}`, { state: data.user });
+
+    } catch (err) {
+      console.error('Registration error:', err);
+      setError('Unable to connect to server. Please try again later.');
+    }
   };
 
   const handleBackToRoles = () => {
@@ -626,40 +655,78 @@ export default function Signup() {
                 </div>
               )}
 
-              {/* Step 4: Document Upload */}
+              {/* Step 4: Document Upload - Navigate to DigiLocker */}
               {verifyStep === 4 && selectedMethod === 'document' && (
                 <>
-                  <h2 className="text-2xl font-bold text-gray-900 mb-2">Upload Documents</h2>
-                  <p className="text-gray-600 mb-6">Upload supporting documents to verify your attributes</p>
+                  <div className="text-center mb-8">
+                    <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-8 h-8 text-orange-600" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l4.59-4.58L18 11l-6 6z"/>
+                      </svg>
+                    </div>
+                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Verify via DigiLocker</h2>
+                    <p className="text-gray-600">Securely verify your documents through Government of India's DigiLocker</p>
+                  </div>
 
-                  <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center mb-6">
-                    <svg className="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                    </svg>
-                    <p className="text-gray-600 mb-2">Drag and drop your files here, or</p>
-                    <button
-                      onClick={() => {
-                        setIsLoggingIn(true);
-                        setTimeout(() => {
-                          setIsLoggingIn(false);
-                          handleCompleteVerification();
-                        }, 1500);
-                      }}
-                      className="text-purple-600 font-semibold hover:text-purple-700"
-                    >
-                      Browse files
-                    </button>
-                    <p className="text-xs text-gray-400 mt-2">Supported: PDF, JPG, PNG (Max 10MB)</p>
+                  <div className="mb-6 p-4 bg-orange-50 rounded-xl border border-orange-200">
+                    <p className="text-sm text-orange-700 mb-2">
+                      <span className="font-semibold">Attributes to verify:</span>
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {respondentVerification?.attributesRequiringProof?.filter(attr =>
+                        DOCUMENT_ATTRIBUTES.includes(attr.toLowerCase().replace(' ', '_'))
+                      ).map((attr, idx) => (
+                        <span key={idx} className="px-3 py-1 bg-orange-100 text-orange-800 rounded-full text-sm">
+                          {attr.charAt(0).toUpperCase() + attr.slice(1)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                    <p className="text-xs text-gray-600">
+                      <span className="font-semibold">Privacy Note:</span> Your documents are verified directly through DigiLocker. No documents are stored on our servers.
+                    </p>
                   </div>
 
                   <button
+                    onClick={() => {
+                      // Create session and navigate to DigiLocker verification
+                      const SESSION_DURATION = 6 * 60 * 60 * 1000; // 6 hours
+                      const sessionExpiry = new Date(Date.now() + SESSION_DURATION).toISOString();
+
+                      const sessionData = {
+                        respondentId: formData.respondentId,
+                        verificationToken: respondentVerification?.token,
+                        attributesRequiringProof: respondentVerification?.attributesRequiringProof || [],
+                        verifiedMethods: [],
+                        sessionExpiry: sessionExpiry
+                      };
+
+                      // Store session and navigate
+                      localStorage.setItem('verificationSession', JSON.stringify(sessionData));
+                      localStorage.setItem('pendingLinkedInVerification', JSON.stringify({
+                        respondentId: formData.respondentId
+                      }));
+
+                      navigate('/verify-document', { state: sessionData });
+                    }}
+                    className="w-full py-4 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-xl font-bold text-lg hover:shadow-lg transition flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l4.59-4.58L18 11l-6 6z"/>
+                    </svg>
+                    Continue with DigiLocker
+                  </button>
+
+                  <button
                     onClick={() => setVerifyStep(3)}
-                    className="flex items-center gap-2 text-gray-600 hover:text-gray-900 font-medium"
+                    className="mt-4 w-full flex items-center justify-center gap-2 text-gray-600 hover:text-gray-900 font-medium"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                     </svg>
-                    Back
+                    Back to verification methods
                   </button>
                 </>
               )}

@@ -119,12 +119,17 @@ export default function VerificationDashboard() {
 
   const handleVerifyAttribute = (method) => {
     if (method === 'document') {
+      // Update localStorage before navigating (to ensure data persists)
+      const updatedSession = {
+        ...sessionData,
+        returnTo: '/verification-dashboard'
+      };
+      localStorage.setItem('verificationSession', JSON.stringify(updatedSession));
+      console.log('[DASHBOARD] Navigating to verify-document with:', updatedSession);
+
       // Navigate to document upload with session data
       navigate('/verify-document', {
-        state: {
-          ...sessionData,
-          returnTo: '/verification-dashboard'
-        }
+        state: updatedSession
       });
     } else if (method === 'linkedin') {
       // Navigate to LinkedIn verification
@@ -141,14 +146,67 @@ export default function VerificationDashboard() {
   };
 
   const handleCompleteVerification = async () => {
-    // Clear session and navigate to success
-    localStorage.removeItem('verificationSession');
-    navigate('/verification-success', {
-      state: {
-        respondentId: sessionData.respondentId,
-        zkpResult: 'Yes'
+    // Call server to complete verification with all attributes
+    const verificationToken = sessionData.verificationToken;
+    const allAttributes = sessionData.attributesRequiringProof || [];
+
+    // Determine verification method used
+    const verifiedMethods = sessionData.verifiedMethods || [];
+    let verificationMethod = 'document';
+    if (verifiedMethods.includes('linkedin') && verifiedMethods.includes('document')) {
+      verificationMethod = 'linkedin+document';
+    } else if (verifiedMethods.includes('linkedin')) {
+      verificationMethod = 'linkedin';
+    }
+
+    if (verificationToken) {
+      try {
+        const response = await fetch(`http://localhost:5000/api/verify/${verificationToken}/complete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            proofData: {
+              completedAt: new Date().toISOString(),
+              method: verificationMethod
+            },
+            verifiedAttributes: allAttributes,
+            verificationMethod: verificationMethod
+          })
+        });
+
+        const responseData = await response.json();
+        console.log('[DASHBOARD] Complete verification response:', responseData);
+
+        // Clear session and navigate to success
+        localStorage.removeItem('verificationSession');
+        navigate('/verification-success', {
+          state: {
+            respondentId: sessionData.respondentId,
+            zkpResult: responseData.zkpResult || 'Yes',
+            proofStatus: responseData.proofStatus || 'verified'
+          }
+        });
+      } catch (err) {
+        console.error('[DASHBOARD] Failed to complete verification:', err);
+        // Still navigate to success as attributes were verified
+        localStorage.removeItem('verificationSession');
+        navigate('/verification-success', {
+          state: {
+            respondentId: sessionData.respondentId,
+            zkpResult: 'Yes'
+          }
+        });
       }
-    });
+    } else {
+      // No token, just navigate
+      localStorage.removeItem('verificationSession');
+      navigate('/verification-success', {
+        state: {
+          respondentId: sessionData.respondentId,
+          zkpResult: 'Yes'
+        }
+      });
+    }
   };
 
   if (loading) {

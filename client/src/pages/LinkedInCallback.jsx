@@ -94,16 +94,31 @@ export default function LinkedInCallback() {
         setTimeout(async () => {
           clearInterval(countdownInterval);
 
+          // Get LinkedIn-related attributes that were verified
+          const linkedinVerifiedAttrs = attributesRequiringProof.filter(attr =>
+            LINKEDIN_ATTRIBUTES.includes(attr.toLowerCase().replace(' ', '_'))
+          );
+
           // Update local panelists data to mark LinkedIn attributes as verified
           if (pendingVerification.respondentId) {
             const panelists = JSON.parse(localStorage.getItem('panelists') || '[]');
             const updatedPanelists = panelists.map(p => {
               if (p.id === pendingVerification.respondentId) {
+                // Determine proof status based on what's verified
+                let newProofStatus = 'pending';
+                if (hasDocumentAttrs && linkedinVerifiedAttrs.length > 0) {
+                  newProofStatus = 'partial'; // LinkedIn done, but document attrs still needed
+                } else if (!hasDocumentAttrs && linkedinVerifiedAttrs.length > 0) {
+                  newProofStatus = 'verified'; // All required attrs are LinkedIn and verified
+                }
+
                 return {
                   ...p,
                   linkedinVerified: true,
-                  proofStatus: hasDocumentAttrs ? 'partial' : 'verified',
-                  verificationStatus: hasDocumentAttrs ? 'partial' : 'verified'
+                  linkedinVerifiedAttrs: linkedinVerifiedAttrs,
+                  proofStatus: newProofStatus,
+                  verificationStatus: newProofStatus,
+                  zkpResult: newProofStatus === 'verified' ? 'Yes' : 'Pending'
                 };
               }
               return p;
@@ -111,23 +126,47 @@ export default function LinkedInCallback() {
             localStorage.setItem('panelists', JSON.stringify(updatedPanelists));
           }
 
-          // If both LinkedIn and document attributes are required, go to dashboard
+          // If both LinkedIn and document attributes are required, save partial status and go to dashboard
           if (hasLinkedInAttrs && hasDocumentAttrs) {
+            // Call server to save partial verification status
+            if (verificationToken) {
+              try {
+                await fetch(`${serverUrl}/api/verify/${verificationToken}/complete`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    proofData: { completedAt: new Date().toISOString(), method: 'linkedin' },
+                    verifiedAttributes: linkedinVerifiedAttrs,
+                    verificationMethod: 'linkedin'
+                  })
+                });
+                console.log('[LINKEDIN] Partial verification saved to server');
+              } catch (err) {
+                console.error('[LINKEDIN] Failed to save partial verification:', err);
+              }
+            }
+
             setStatus('success');
 
             // Create session with 6-hour expiry
             const sessionExpiry = new Date(Date.now() + SESSION_DURATION).toISOString();
 
+            // Store session data in localStorage as backup
+            const sessionData = {
+              respondentId: pendingVerification.respondentId,
+              verificationToken: verificationToken,
+              attributesRequiringProof: attributesRequiringProof,
+              linkedinVerifiedAttrs: linkedinVerifiedAttrs,
+              verifiedMethods: ['linkedin'],
+              sessionExpiry: sessionExpiry
+            };
+            localStorage.setItem('verificationSession', JSON.stringify(sessionData));
+            console.log('[LINKEDIN] Session data stored:', sessionData);
+
             // Navigate to verification dashboard after showing success
             setTimeout(() => {
               navigate('/verification-dashboard', {
-                state: {
-                  respondentId: pendingVerification.respondentId,
-                  verificationToken: verificationToken,
-                  attributesRequiringProof: attributesRequiringProof,
-                  verifiedMethods: ['linkedin'],
-                  sessionExpiry: sessionExpiry
-                }
+                state: sessionData
               });
             }, 2000);
 
@@ -144,22 +183,25 @@ export default function LinkedInCallback() {
                   proofData: {
                     completedAt: new Date().toISOString(),
                     method: 'linkedin'
-                  }
+                  },
+                  verifiedAttributes: linkedinVerifiedAttrs,
+                  verificationMethod: 'linkedin'
                 })
               });
 
               const completeData = await completeResponse.json();
 
-              // Update local panelists data
+              // Update local panelists data with server response
               if (pendingVerification.respondentId) {
                 const panelists = JSON.parse(localStorage.getItem('panelists') || '[]');
                 const updatedPanelists = panelists.map(p => {
                   if (p.id === pendingVerification.respondentId) {
                     return {
                       ...p,
-                      proofStatus: 'verified',
-                      verificationStatus: 'verified',
-                      zkpResult: completeData.zkpResult || 'Yes'
+                      proofStatus: completeData.proofStatus || 'verified',
+                      verificationStatus: completeData.proofStatus || 'verified',
+                      zkpResult: completeData.zkpResult || 'Yes',
+                      verifiedAttributes: completeData.verifiedAttributes || linkedinVerifiedAttrs
                     };
                   }
                   return p;

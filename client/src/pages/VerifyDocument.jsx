@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 
 // Attribute categories
 const DOCUMENT_ATTRIBUTES = ['age', 'gender', 'income', 'location', 'education'];
+const LINKEDIN_ATTRIBUTES = ['job_title', 'industry', 'company_size', 'occupation', 'seniority', 'department'];
 
 // Function to format attribute name for display
 const formatAttributeName = (attr) => {
@@ -73,44 +74,120 @@ export default function VerifyDocument() {
       }
     }, 1000);
 
-    // After 5 seconds, show success and redirect
-    setTimeout(() => {
+    // After 5 seconds, show success and call server
+    setTimeout(async () => {
       clearInterval(countdownInterval);
-      setStatus('success');
 
-      // Update session data to mark document as verified
-      const updatedSession = {
-        ...sessionData,
-        verifiedMethods: [...(sessionData.verifiedMethods || []), 'document']
-      };
-
-      // Save updated session
-      localStorage.setItem('verificationSession', JSON.stringify(updatedSession));
-
-      // Update local panelists data
-      const pendingVerification = JSON.parse(localStorage.getItem('pendingLinkedInVerification') || '{}');
-      if (pendingVerification.respondentId) {
-        const panelists = JSON.parse(localStorage.getItem('panelists') || '[]');
-        const updatedPanelists = panelists.map(p => {
-          if (p.id === pendingVerification.respondentId) {
-            return {
-              ...p,
-              documentVerified: true,
-              proofStatus: 'verified',
-              verificationStatus: 'verified'
-            };
-          }
-          return p;
-        });
-        localStorage.setItem('panelists', JSON.stringify(updatedPanelists));
+      // Get all required attributes - try session first, then localStorage fallback
+      let allAttributes = sessionData.attributesRequiringProof || [];
+      if (allAttributes.length === 0) {
+        // Fallback to localStorage
+        const storedAttrs = localStorage.getItem('attributesRequiringProof');
+        if (storedAttrs) {
+          allAttributes = JSON.parse(storedAttrs);
+        }
       }
 
-      // Redirect to dashboard after 2 seconds
-      setTimeout(() => {
-        navigate('/verification-dashboard', {
-          state: updatedSession
-        });
-      }, 2000);
+      // Get previously verified LinkedIn attributes - try session first, then localStorage
+      let linkedinVerifiedAttrs = sessionData.linkedinVerifiedAttrs || [];
+      if (linkedinVerifiedAttrs.length === 0) {
+        // Check if we're in combined flow by looking at verifiedMethods
+        const verifiedMethods = sessionData.verifiedMethods || [];
+        if (verifiedMethods.includes('linkedin')) {
+          // LinkedIn was done, but attrs not in session - reconstruct from allAttributes
+          linkedinVerifiedAttrs = allAttributes.filter(attr =>
+            LINKEDIN_ATTRIBUTES.includes(attr.toLowerCase().replace(' ', '_'))
+          );
+        }
+      }
+
+      // Determine which attributes to mark as verified
+      let allVerifiedAttrs;
+
+      if (linkedinVerifiedAttrs.length > 0) {
+        // Combined flow: LinkedIn was done first, now document
+        // Only add document-type attributes that weren't already verified
+        const documentVerifiedAttrs = allAttributes.filter(attr =>
+          DOCUMENT_ATTRIBUTES.includes(attr.toLowerCase().replace(' ', '_'))
+        );
+        allVerifiedAttrs = [...linkedinVerifiedAttrs, ...documentVerifiedAttrs];
+      } else {
+        // Document-only flow: Mark ALL attributes as verified via document
+        // Since document was the only recommended method, all attributes should be document-verifiable
+        allVerifiedAttrs = [...allAttributes];
+      }
+
+      // Get verification token from session
+      const verificationToken = sessionData.verificationToken;
+
+      // Determine verification method based on what was used
+      const verificationMethod = linkedinVerifiedAttrs.length > 0 ? 'linkedin+document' : 'document';
+
+      console.log('[VERIFY-DOCUMENT] Session data:', sessionData);
+      console.log('[VERIFY-DOCUMENT] Verification token:', verificationToken);
+      console.log('[VERIFY-DOCUMENT] All attributes:', allAttributes);
+      console.log('[VERIFY-DOCUMENT] LinkedIn verified:', linkedinVerifiedAttrs);
+      console.log('[VERIFY-DOCUMENT] All verified attrs:', allVerifiedAttrs);
+      console.log('[VERIFY-DOCUMENT] Verification method:', verificationMethod);
+
+      // Call server to complete verification with all attributes
+
+      if (verificationToken) {
+        try {
+          const response = await fetch(`http://localhost:5000/api/verify/${verificationToken}/complete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              proofData: {
+                completedAt: new Date().toISOString(),
+                method: 'document'
+              },
+              verifiedAttributes: allVerifiedAttrs,
+              verificationMethod: verificationMethod
+            })
+          });
+
+          const responseData = await response.json();
+          console.log('[VERIFY-DOCUMENT] Server response:', responseData);
+
+          setStatus('success');
+
+          // Navigate to verification success after 2 seconds
+          setTimeout(() => {
+            navigate('/verification-success', {
+              state: {
+                respondentId: sessionData.respondentId,
+                zkpResult: responseData.zkpResult || 'Yes',
+                proofStatus: responseData.proofStatus || 'verified'
+              }
+            });
+          }, 2000);
+
+        } catch (err) {
+          console.error('[VERIFY-DOCUMENT] Server error:', err);
+          setStatus('success');
+          setTimeout(() => {
+            navigate('/verification-success', {
+              state: {
+                respondentId: sessionData.respondentId,
+                zkpResult: 'Yes',
+                proofStatus: 'verified'
+              }
+            });
+          }, 2000);
+        }
+      } else {
+        setStatus('success');
+        setTimeout(() => {
+          navigate('/verification-success', {
+            state: {
+              respondentId: sessionData.respondentId,
+              zkpResult: 'Yes',
+              proofStatus: 'verified'
+            }
+          });
+        }, 2000);
+      }
     }, 5000);
   };
 

@@ -19,41 +19,50 @@ export default function SignIn() {
     }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    // Simulate API call delay
-    setTimeout(() => {
-      // Get all users from localStorage
-      const allUsers = JSON.parse(localStorage.getItem('users') || '[]');
+    // Validate input
+    if (!formData.email || !formData.password) {
+      setError('Email and password are required');
+      setLoading(false);
+      return;
+    }
 
-      // Validate input
-      if (!formData.email || !formData.password) {
-        setError('Email and password are required');
+    try {
+      const response = await fetch('http://localhost:5000/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        setError(data.message || 'Invalid email or password. Please check and try again.');
         setLoading(false);
         return;
       }
 
-      // Find user with matching email and password
-      const user = allUsers.find(u =>
-        u.email === formData.email && u.password === formData.password
-      );
-
-      if (!user) {
-        setError('Invalid email or password. Please check and try again.');
-        setLoading(false);
-        return;
-      }
-
-      // Save as current user
-      localStorage.setItem('currentUser', JSON.stringify(user));
+      // Save token and user to localStorage
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('currentUser', JSON.stringify(data.user));
 
       // Navigate to dashboard based on role
-      navigate(`/dashboard/${user.role}`, { state: user });
+      navigate(`/dashboard/${data.user.role}`, { state: data.user });
 
-    }, 1000);
+    } catch (err) {
+      console.error('Login error:', err);
+      setError('Unable to connect to server. Please try again later.');
+      setLoading(false);
+    }
   };
 
   return (
