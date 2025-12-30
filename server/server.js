@@ -9,10 +9,12 @@ import surveyRoutes from './routes/surveys.js';
 import syncRoutes from './routes/sync.js';
 import authRoutes from './routes/auth.js';
 
+// Load environment variables FIRST before using them
+dotenv.config();
+
 // Initialize Resend if API key is provided
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-
-dotenv.config();
+console.log(`[RESEND] API Key configured: ${process.env.RESEND_API_KEY ? 'Yes' : 'No'}`);
 
 // Store for verification tokens
 const verificationTokens = new Map();
@@ -441,21 +443,29 @@ app.post('/api/email/send-bulk', async (req, res) => {
           html: emailContent.html,
           text: emailContent.text
         })
-          .then(data => {
-            console.log(`[EMAIL] Sent via Resend to ${email} - ID: ${data.id}`);
+          .then(response => {
+            // Resend returns { data: { id: '...' }, error: null } on success
+            // or { data: null, error: { ... } } on failure
+            if (response.error) {
+              console.error(`[EMAIL] Resend API error for ${email}:`, response.error);
+              failed.push({ respondentId, email, error: response.error.message || 'Resend API error' });
+              return;
+            }
+            const messageId = response.data?.id || response.id;
+            console.log(`[EMAIL] Sent via Resend to ${email} - ID: ${messageId}`);
             results.push({
               respondentId,
               email,
               verificationLink,
               token: token.substring(0, 8) + '...',
               realEmailSent: true,
-              messageId: data.id,
+              messageId: messageId,
               method: 'resend'
             });
           })
           .catch(error => {
-            console.error(`[EMAIL] Resend failed to send to ${email}:`, error.message);
-            failed.push({ respondentId, email, error: error.message });
+            console.error(`[EMAIL] Resend failed to send to ${email}:`, error.message || error);
+            failed.push({ respondentId, email, error: error.message || 'Unknown error' });
           })
       );
     } else {
