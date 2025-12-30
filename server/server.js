@@ -245,6 +245,9 @@ app.post('/api/email/send-bulk', async (req, res) => {
     }
     emailMethod = 'resend';
     console.log('[EMAIL] Using Resend API for email delivery');
+    if (process.env.RESEND_TEST_EMAIL) {
+      console.log(`[EMAIL] Testing mode: Only sending real email to ${process.env.RESEND_TEST_EMAIL}, others will be simulated`);
+    }
   } else {
     // Validate SMTP credentials
     if (!smtpUser || !smtpPass) {
@@ -290,8 +293,18 @@ app.post('/api/email/send-bulk', async (req, res) => {
   const failed = [];
   const emailPromises = [];
 
+  // In Resend testing mode, only send real email to TEST_EMAIL
+  // All other emails will be simulated (marked as sent without actually sending)
+  const resendTestEmail = process.env.RESEND_TEST_EMAIL;
+
   for (const respondent of respondents) {
     const { id: respondentId, email, name, attributesRequiringProof, alreadyVerifiedAttributes } = respondent;
+
+    // Check if this email should be simulated (not actually sent)
+    const shouldSimulate = emailMethod === 'resend' &&
+      resendTestEmail &&
+      email &&
+      email.toLowerCase() !== resendTestEmail.toLowerCase();
 
     if (!email) {
       failed.push({ respondentId, error: 'No email address' });
@@ -433,6 +446,21 @@ app.post('/api/email/send-bulk', async (req, res) => {
       sentAt: new Date().toISOString()
     });
 
+    // If in testing mode and this isn't the test email, simulate sending
+    if (shouldSimulate) {
+      console.log(`[EMAIL] Simulated send to ${email} (testing mode - only real email sent to ${resendTestEmail})`);
+      results.push({
+        respondentId,
+        email,
+        verificationLink,
+        token: token.substring(0, 8) + '...',
+        realEmailSent: false,
+        messageId: `simulated-${Date.now()}-${respondentId}`,
+        method: 'simulated'
+      });
+      continue; // Skip actual sending
+    }
+
     // Send email using either Resend or SMTP
     if (emailMethod === 'resend') {
       emailPromises.push(
@@ -499,12 +527,16 @@ app.post('/api/email/send-bulk', async (req, res) => {
     transporter.close();
   }
 
-  console.log(`[BULK EMAIL] Sent ${results.length} emails, ${failed.length} failed`);
+  const realSent = results.filter(r => r.realEmailSent).length;
+  const simulated = results.filter(r => !r.realEmailSent).length;
+  console.log(`[BULK EMAIL] Real: ${realSent}, Simulated: ${simulated}, Failed: ${failed.length}`);
 
   res.json({
     success: true,
-    message: `Sent ${results.length} verification emails`,
+    message: `Sent ${results.length} verification emails (${realSent} real, ${simulated} simulated)`,
     sent: results.length,
+    realSent,
+    simulated,
     failed: failed.length,
     results,
     failedDetails: failed
