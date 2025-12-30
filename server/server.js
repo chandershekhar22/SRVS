@@ -4,9 +4,13 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import surveyRoutes from './routes/surveys.js';
 import syncRoutes from './routes/sync.js';
 import authRoutes from './routes/auth.js';
+
+// Initialize Resend if API key is provided
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 dotenv.config();
 
@@ -219,44 +223,65 @@ setInterval(() => {
 
 // Send verification emails to multiple respondents (bulk) - SENDS REAL EMAILS
 app.post('/api/email/send-bulk', async (req, res) => {
-  const { respondents, baseUrl, smtpUser, smtpPass, companyType } = req.body;
+  const { respondents, baseUrl, smtpUser, smtpPass, companyType, useResend } = req.body;
 
   if (!respondents || respondents.length === 0) {
     return res.status(400).json({ error: 'No respondents provided' });
   }
 
-  // Validate SMTP credentials
-  if (!smtpUser || !smtpPass) {
-    return res.status(400).json({ error: 'SMTP credentials (smtpUser and smtpPass) are required' });
-  }
+  // Check if we should use Resend API (for production/cloud deployment)
+  const shouldUseResend = useResend || process.env.USE_RESEND === 'true' || (resend && !smtpUser);
 
-  // Create a dynamic transporter using provided SMTP credentials
   let transporter;
-  try {
-    transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false,
-      auth: {
-        user: smtpUser,
-        pass: smtpPass
-      },
-      pool: true,
-      maxConnections: 5,
-      maxMessages: 100,
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 30000
-    });
+  let emailMethod = 'smtp';
 
-    await transporter.verify();
-    console.log(`[EMAIL] SMTP verified for: ${smtpUser}`);
-    await new Promise(resolve => setTimeout(resolve, 500));
-  } catch (error) {
-    console.error(`[EMAIL] SMTP verification failed for ${smtpUser}:`, error.message);
-    return res.status(400).json({
-      error: `SMTP authentication failed: ${error.message}. Please check your email and app password.`
-    });
+  if (shouldUseResend) {
+    if (!resend) {
+      return res.status(400).json({
+        error: 'Resend API key not configured. Please set RESEND_API_KEY environment variable or provide SMTP credentials.'
+      });
+    }
+    emailMethod = 'resend';
+    console.log('[EMAIL] Using Resend API for email delivery');
+  } else {
+    // Validate SMTP credentials
+    if (!smtpUser || !smtpPass) {
+      return res.status(400).json({ error: 'SMTP credentials (smtpUser and smtpPass) are required' });
+    }
+
+    // Create a dynamic transporter using provided SMTP credentials
+    try {
+      transporter = nodemailer.createTransport({
+        host: 'smtp.gmail.com',
+        port: 587,
+        secure: false,
+        auth: {
+          user: smtpUser,
+          pass: smtpPass
+        },
+        pool: true,
+        maxConnections: 5,
+        maxMessages: 100,
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 30000
+      });
+
+      await transporter.verify();
+      console.log(`[EMAIL] SMTP verified for: ${smtpUser}`);
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } catch (error) {
+      console.error(`[EMAIL] SMTP verification failed for ${smtpUser}:`, error.message);
+
+      // Suggest using Resend if SMTP fails
+      const suggestion = resend
+        ? ' Try enabling "Use Resend API" option instead.'
+        : ' Consider using Resend API for cloud deployments (set RESEND_API_KEY env variable).';
+
+      return res.status(400).json({
+        error: `SMTP authentication failed: ${error.message}. Please check your email and app password.${suggestion}`
+      });
+    }
   }
 
   const results = [];
@@ -264,12 +289,15 @@ app.post('/api/email/send-bulk', async (req, res) => {
   const emailPromises = [];
 
   for (const respondent of respondents) {
-    const { id: respondentId, email, name, attributesRequiringProof } = respondent;
+    const { id: respondentId, email, name, attributesRequiringProof, alreadyVerifiedAttributes } = respondent;
 
     if (!email) {
       failed.push({ respondentId, error: 'No email address' });
       continue;
     }
+
+    // Check if this is a partial verification (has already verified some attributes)
+    const isPartialVerification = alreadyVerifiedAttributes && alreadyVerifiedAttributes.length > 0;
 
     // Generate verification token
     const token = crypto.randomBytes(32).toString('hex');
@@ -280,6 +308,8 @@ app.post('/api/email/send-bulk', async (req, res) => {
       email,
       name,
       attributesRequiringProof: attributesRequiringProof || [],
+      alreadyVerifiedAttributes: alreadyVerifiedAttributes || [],
+      isPartialVerification,
       createdAt: new Date().toISOString(),
       expiresAt: expiresAt.toISOString(),
       used: false
@@ -288,9 +318,49 @@ app.post('/api/email/send-bulk', async (req, res) => {
     const verificationLink = `${baseUrl || process.env.FRONTEND_URL || 'http://localhost:5173'}/verify/${token}`;
 
     // Email content - different templates for panel vs insight companies
+    // Also different template for partial verification (reminder to complete)
     let emailContent;
+    const remainingAttrs = attributesRequiringProof || [];
+    const verifiedAttrs = alreadyVerifiedAttributes || [];
 
-    if (companyType === 'insight') {
+    if (isPartialVerification) {
+      // Partial verification reminder email
+      emailContent = {
+        from: smtpUser,
+        to: email,
+        subject: 'Complete your verification - just a few more steps',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <p style="color: #333; font-size: 16px; margin-bottom: 20px;">Hi ${name?.split(' ')[0] || 'there'},</p>
+            <p style="color: #333; font-size: 16px; line-height: 1.6; margin-bottom: 20px;">
+              You're almost there! You've already verified <strong>${verifiedAttrs.length}</strong> attribute(s).
+            </p>
+            <div style="background-color: #e8f5e9; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+              <p style="color: #2e7d32; font-size: 14px; margin: 0 0 10px 0; font-weight: bold;">Already Verified:</p>
+              <p style="color: #2e7d32; font-size: 14px; margin: 0;">${verifiedAttrs.join(', ') || 'None'}</p>
+            </div>
+            <div style="background-color: #fff3e0; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+              <p style="color: #e65100; font-size: 14px; margin: 0 0 10px 0; font-weight: bold;">Remaining to Verify:</p>
+              <p style="color: #e65100; font-size: 14px; margin: 0;">${remainingAttrs.join(', ') || 'None'}</p>
+            </div>
+            <p style="color: #333; font-size: 16px; line-height: 1.6; margin-bottom: 25px;">
+              Complete your verification to unlock full access to studies.
+            </p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${verificationLink}" style="display: inline-block; padding: 14px 28px; background-color: #ff9800; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">
+                Complete Verification →
+              </a>
+            </div>
+            <p style="color: #666; font-size: 14px; text-align: center; margin-bottom: 30px;">
+              Only takes a minute to finish.
+            </p>
+            <hr style="border: 1px solid #eee; margin: 20px 0;">
+            <p style="color: #999; font-size: 12px;">${companyType === 'insight' ? 'Insight' : 'Panel'} company</p>
+          </div>
+        `,
+        text: `Hi ${name?.split(' ')[0] || 'there'},\n\nYou're almost there! You've already verified ${verifiedAttrs.length} attribute(s).\n\nAlready Verified: ${verifiedAttrs.join(', ') || 'None'}\nRemaining to Verify: ${remainingAttrs.join(', ') || 'None'}\n\nComplete your verification to unlock full access to studies.\n\nComplete Verification: ${verificationLink}\n\nOnly takes a minute to finish.\n\n${companyType === 'insight' ? 'Insight' : 'Panel'} company`
+      };
+    } else if (companyType === 'insight') {
       emailContent = {
         from: smtpUser,
         to: email,
@@ -361,31 +431,63 @@ app.post('/api/email/send-bulk', async (req, res) => {
       sentAt: new Date().toISOString()
     });
 
-    emailPromises.push(
-      transporter.sendMail(emailContent)
-        .then(info => {
-          console.log(`[EMAIL] Sent to ${email} - MessageId: ${info.messageId}`);
-          results.push({
-            respondentId,
-            email,
-            verificationLink,
-            token: token.substring(0, 8) + '...',
-            realEmailSent: true,
-            messageId: info.messageId
-          });
+    // Send email using either Resend or SMTP
+    if (emailMethod === 'resend') {
+      emailPromises.push(
+        resend.emails.send({
+          from: process.env.RESEND_FROM_EMAIL || 'SRVS <onboarding@resend.dev>',
+          to: email,
+          subject: emailContent.subject,
+          html: emailContent.html,
+          text: emailContent.text
         })
-        .catch(error => {
-          console.error(`[EMAIL] Failed to send to ${email}:`, error.message);
-          failed.push({ respondentId, email, error: error.message });
-        })
-    );
+          .then(data => {
+            console.log(`[EMAIL] Sent via Resend to ${email} - ID: ${data.id}`);
+            results.push({
+              respondentId,
+              email,
+              verificationLink,
+              token: token.substring(0, 8) + '...',
+              realEmailSent: true,
+              messageId: data.id,
+              method: 'resend'
+            });
+          })
+          .catch(error => {
+            console.error(`[EMAIL] Resend failed to send to ${email}:`, error.message);
+            failed.push({ respondentId, email, error: error.message });
+          })
+      );
+    } else {
+      emailPromises.push(
+        transporter.sendMail(emailContent)
+          .then(info => {
+            console.log(`[EMAIL] Sent via SMTP to ${email} - MessageId: ${info.messageId}`);
+            results.push({
+              respondentId,
+              email,
+              verificationLink,
+              token: token.substring(0, 8) + '...',
+              realEmailSent: true,
+              messageId: info.messageId,
+              method: 'smtp'
+            });
+          })
+          .catch(error => {
+            console.error(`[EMAIL] SMTP failed to send to ${email}:`, error.message);
+            failed.push({ respondentId, email, error: error.message });
+          })
+      );
+    }
   }
 
   if (emailPromises.length > 0) {
     await Promise.all(emailPromises);
   }
 
-  transporter.close();
+  if (transporter) {
+    transporter.close();
+  }
 
   console.log(`[BULK EMAIL] Sent ${results.length} emails, ${failed.length} failed`);
 
@@ -436,8 +538,12 @@ app.get('/api/verify/:token', (req, res) => {
     email: tokenData.email,
     name: tokenData.name,
     attributesRequiringProof: attrs,
+    alreadyVerifiedAttributes: tokenData.alreadyVerifiedAttributes || [],
+    isPartialVerification: tokenData.isPartialVerification || false,
     recommendedVerificationMethods: recommendedMethods,
-    message: 'Token is valid. Please complete your verification.'
+    message: tokenData.isPartialVerification
+      ? 'Welcome back! Complete your remaining verification.'
+      : 'Token is valid. Please complete your verification.'
   });
 });
 

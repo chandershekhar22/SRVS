@@ -16,6 +16,7 @@ export default function InsightRespondents() {
   const [smtpCredentials, setSmtpCredentials] = useState({ user: '', pass: '' });
   const [showSmtpForm, setShowSmtpForm] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [useResendApi, setUseResendApi] = useState(false);
 
   // Function to load panelists and fetch verification status from server
   const loadPanelists = async (showRefreshMessage = false) => {
@@ -41,6 +42,9 @@ export default function InsightRespondents() {
           const updatedPanelists = savedPanelists.map(p => {
             const serverStatus = data.verifications[p.id];
             if (serverStatus) {
+              // If user is "partial" verified, reset emailSent so they get reminder email on next sync
+              const shouldResetEmail = serverStatus.proofStatus === 'partial' && p.emailSent;
+
               return {
                 ...p,
                 proofStatus: serverStatus.proofStatus,
@@ -48,7 +52,13 @@ export default function InsightRespondents() {
                 zkpResult: serverStatus.zkpResult,
                 verifiedAttributes: serverStatus.verifiedAttributes,
                 verificationMethod: serverStatus.verificationMethod,
-                verificationCompletedAt: serverStatus.completedAt
+                verificationCompletedAt: serverStatus.completedAt,
+                // Reset emailSent for partial verified users so they can receive reminder emails
+                emailSent: shouldResetEmail ? false : p.emailSent,
+                // Track remaining attributes that need verification
+                remainingAttributes: serverStatus.proofStatus === 'partial'
+                  ? (p.attributesRequiringProof || []).filter(attr => !(serverStatus.verifiedAttributes || []).includes(attr))
+                  : []
               };
             }
             return p;
@@ -86,13 +96,29 @@ export default function InsightRespondents() {
   // Show all panelists (not filtered - so verified ones show up too)
   const allPanelists = panelists;
 
-  // Filter for respondents needing attention (pending or partial) - used for email sending
-  const unverifiedPanelists = panelists.filter(p =>
+  // Filter for respondents needing attention - used for email sending
+  const partialVerifiedPanelists = panelists.filter(p => p.proofStatus === 'partial');
+  const pendingPanelists = panelists.filter(p =>
     p.verificationStatus === 'unverified' ||
     p.proofStatus === 'pending' ||
-    p.proofStatus === 'partial' ||
     !p.proofStatus
   );
+
+  // Get emails of partial verified users - these should ONLY get completion reminder (not new verification)
+  const partialVerifiedEmails = new Set(
+    partialVerifiedPanelists.map(p => p.email || p._privateData?.email).filter(Boolean)
+  );
+
+  // Filter out pending users whose email is SAME as a partial verified user
+  // This prevents same email from getting both "new verification" and "complete verification" emails
+  const pendingPanelistsFiltered = pendingPanelists.filter(p => {
+    const email = p.email || p._privateData?.email;
+    return !email || !partialVerifiedEmails.has(email);
+  });
+
+  // Combine: partial verified users + pending users with different emails
+  // Both get emails, but different types
+  const unverifiedPanelists = [...partialVerifiedPanelists, ...pendingPanelistsFiltered];
 
   const handleSelectAll = (e) => {
     if (e.target.checked) {
@@ -165,8 +191,9 @@ export default function InsightRespondents() {
     // Use the real server for email sending (not mock-api)
     const serverUrl = config.API_URL;
 
-    if (!smtpCredentials.user || !smtpCredentials.pass) {
-      setMessage('Please enter your SMTP credentials');
+    // Validate credentials - only require SMTP if not using Resend
+    if (!useResendApi && (!smtpCredentials.user || !smtpCredentials.pass)) {
+      setMessage('Please enter your SMTP credentials or enable Resend API');
       return;
     }
 
@@ -194,12 +221,18 @@ export default function InsightRespondents() {
             id: p.id,
             email: p._privateData?.email || p.email,
             name: p._privateData?.name || p.name,
-            attributesRequiringProof: p.attributesRequiringProof
+            // For partial verified users, only send remaining attributes that need verification
+            attributesRequiringProof: p.proofStatus === 'partial' && p.remainingAttributes?.length > 0
+              ? p.remainingAttributes
+              : p.attributesRequiringProof,
+            // Include what's already verified for context
+            alreadyVerifiedAttributes: p.verifiedAttributes || []
           })),
           baseUrl: window.location.origin,
           smtpUser: smtpCredentials.user,
           smtpPass: smtpCredentials.pass,
-          companyType: 'insight'
+          companyType: 'insight',
+          useResend: useResendApi
         })
       });
 
@@ -505,44 +538,88 @@ export default function InsightRespondents() {
               </div>
             </div>
 
-            {/* SMTP Credentials Form */}
+            {/* Email Method Toggle */}
             {showSmtpForm && !emailResults && (
-              <div className="mb-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-                <p className="text-sm font-semibold text-yellow-800 mb-3">
-                  Enter Your Email SMTP Credentials
-                </p>
-                <p className="text-xs text-yellow-700 mb-4">
-                  Emails will be sent from your email account. For Gmail, use an App Password (not your regular password).
-                </p>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      SMTP Email (e.g., your-email@gmail.com)
+              <div className="mb-6">
+                {/* Method Toggle */}
+                <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">Email Delivery Method</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {useResendApi
+                          ? 'Using Resend API (configured on server)'
+                          : 'Using your SMTP credentials'}
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={useResendApi}
+                        onChange={(e) => setUseResendApi(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      <span className="ml-3 text-sm font-medium text-gray-700">
+                        {useResendApi ? 'Resend API' : 'SMTP'}
+                      </span>
                     </label>
-                    <input
-                      type="email"
-                      value={smtpCredentials.user}
-                      onChange={(e) => setSmtpCredentials(prev => ({ ...prev, user: e.target.value }))}
-                      placeholder="your-email@gmail.com"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      SMTP Password / App Password
-                    </label>
-                    <input
-                      type="password"
-                      value={smtpCredentials.pass}
-                      onChange={(e) => setSmtpCredentials(prev => ({ ...prev, pass: e.target.value }))}
-                      placeholder="Enter your app password"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
                   </div>
                 </div>
-                <p className="text-xs text-gray-500 mt-3">
-                  Your credentials are only used for this session and are not stored on the server.
-                </p>
+
+                {/* Resend API Info */}
+                {useResendApi && (
+                  <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                    <p className="text-sm font-semibold text-blue-800 mb-2">
+                      Using Resend API
+                    </p>
+                    <p className="text-xs text-blue-700">
+                      Emails will be sent using the Resend API configured on the server.
+                      Make sure RESEND_API_KEY is set in your server environment variables.
+                    </p>
+                  </div>
+                )}
+
+                {/* SMTP Credentials Form */}
+                {!useResendApi && (
+                  <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                    <p className="text-sm font-semibold text-yellow-800 mb-3">
+                      Enter Your Email SMTP Credentials
+                    </p>
+                    <p className="text-xs text-yellow-700 mb-4">
+                      Emails will be sent from your email account. For Gmail, use an App Password (not your regular password).
+                    </p>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          SMTP Email (e.g., your-email@gmail.com)
+                        </label>
+                        <input
+                          type="email"
+                          value={smtpCredentials.user}
+                          onChange={(e) => setSmtpCredentials(prev => ({ ...prev, user: e.target.value }))}
+                          placeholder="your-email@gmail.com"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          SMTP Password / App Password
+                        </label>
+                        <input
+                          type="password"
+                          value={smtpCredentials.pass}
+                          onChange={(e) => setSmtpCredentials(prev => ({ ...prev, pass: e.target.value }))}
+                          placeholder="Enter your app password"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-3">
+                      Your credentials are only used for this session and are not stored on the server.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -593,7 +670,7 @@ export default function InsightRespondents() {
               {!emailResults && (
                 <button
                   onClick={() => handleSendVerificationEmails(true)}
-                  disabled={sendingEmails || unverifiedPanelists.filter(p => !p.emailSent).length === 0 || !smtpCredentials.user || !smtpCredentials.pass}
+                  disabled={sendingEmails || unverifiedPanelists.filter(p => !p.emailSent).length === 0 || (!useResendApi && (!smtpCredentials.user || !smtpCredentials.pass))}
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold disabled:opacity-50 transition"
                 >
                   {sendingEmails ? 'Sending...' : `Send to All (${unverifiedPanelists.filter(p => !p.emailSent).length})`}

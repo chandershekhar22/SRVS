@@ -333,6 +333,7 @@ app.get('/api/respondents', (req, res) => {
 });
 
 // Sync endpoint - returns new/updated respondents since last sync
+// Always returns exactly 3 respondents: 2 random + 1 test email
 app.post('/api/sync', (req, res) => {
   const apiKey = req.headers.authorization?.split(' ')[1];
   const { userId, panelId, timestamp, lastSyncTime } = req.body;
@@ -345,122 +346,120 @@ app.post('/api/sync', (req, res) => {
   const effectivePanelId = panelId || `PNL-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
   console.log(`[SYNC] Panel ID: ${effectivePanelId}`);
 
-  // Simulate getting new respondents since last sync
-  const newCount = Math.floor(Math.random() * 8) + 3; // 3-10 new respondents
-  const newRespondents = generateMockRespondents(newCount, effectivePanelId);
+  // ALWAYS include both LinkedIn AND document attributes for verification
+  const requiredAttributes = ['age', 'income', 'location', 'job_title', 'industry'];
 
-  // Always add a respondent with the TEST_EMAIL for verification testing
-  const salt = crypto.randomBytes(16).toString('hex');
+  const newRespondents = [];
+  const randomNames = ['John Doe', 'Jane Smith', 'Alex Johnson', 'Sam Wilson', 'Chris Lee'];
+  const randomEmails = ['user1@example.com', 'user2@example.com', 'user3@example.com', 'user4@example.com'];
+
+  // Generate exactly 2 random respondents
+  for (let i = 0; i < 2; i++) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const name = randomNames[Math.floor(Math.random() * randomNames.length)];
+    const email = randomEmails[Math.floor(Math.random() * randomEmails.length)];
+
+    const randomData = {
+      name,
+      email,
+      age: Math.floor(Math.random() * 40) + 20,
+      income: Math.floor(Math.random() * 100000) + 30000,
+      location: ['New York', 'Chicago', 'Los Angeles'][Math.floor(Math.random() * 3)],
+      job_title: ['Engineer', 'Manager', 'Analyst'][Math.floor(Math.random() * 3)],
+      industry: ['Technology', 'Finance', 'Healthcare'][Math.floor(Math.random() * 3)]
+    };
+
+    const zkpQueryObj = generateZkpQueryFromAttributes(requiredAttributes, randomData);
+
+    newRespondents.push({
+      id: `RSP-${effectivePanelId}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
+      _privateData: randomData,
+      hashedData: crypto.createHash('sha256').update(JSON.stringify({ ...randomData, salt })).digest('hex'),
+      proofStatus: 'pending',
+      zkpQuery: zkpQueryObj.query,
+      zkpQueryConditions: zkpQueryObj.conditions,
+      zkpQueryLogic: zkpQueryObj.logic,
+      zkpResult: 'pending',
+      attributesRequiringProof: requiredAttributes,
+      recommendedVerificationMethods: ['linkedin', 'document'],
+      attributeHashes: {
+        age: crypto.createHash('sha256').update(`age:${randomData.age}:${salt}`).digest('hex'),
+        income: crypto.createHash('sha256').update(`income:${randomData.income}:${salt}`).digest('hex'),
+        location: crypto.createHash('sha256').update(`location:${randomData.location}:${salt}`).digest('hex'),
+        job_title: crypto.createHash('sha256').update(`job_title:${randomData.job_title}:${salt}`).digest('hex'),
+        industry: crypto.createHash('sha256').update(`industry:${randomData.industry}:${salt}`).digest('hex')
+      },
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  // Generate 1 respondent with TEST_EMAIL
+  const testSalt = crypto.randomBytes(16).toString('hex');
   const testEmailData = {
-    name: 'Test Respondent',
+    name: 'Test User',
     email: TEST_EMAIL,
     age: 28,
     income: 60000,
     location: 'Chicago',
-    occupation: 'Developer',
-    education: 'Master'
+    job_title: 'Developer',
+    industry: 'Technology'
   };
 
-  // Generate query based on test attributes
-  const testAttributes = ['age', 'income', 'occupation', 'education'];
-  const testSyncQuery = generateZkpQueryFromAttributes(testAttributes, testEmailData);
+  const testZkpQuery = generateZkpQueryFromAttributes(requiredAttributes, testEmailData);
 
-  const testEmailRespondent = {
+  newRespondents.push({
     id: `RSP-${effectivePanelId}-TEST-${crypto.randomBytes(4).toString('hex')}`,
     _privateData: testEmailData,
-    hashedData: crypto.createHash('sha256').update(JSON.stringify({ ...testEmailData, salt })).digest('hex'),
+    hashedData: crypto.createHash('sha256').update(JSON.stringify({ ...testEmailData, testSalt })).digest('hex'),
     proofStatus: 'pending',
-    zkpQuery: testSyncQuery.query,
-    zkpQueryConditions: testSyncQuery.conditions,
-    zkpQueryLogic: testSyncQuery.logic,
+    zkpQuery: testZkpQuery.query,
+    zkpQueryConditions: testZkpQuery.conditions,
+    zkpQueryLogic: testZkpQuery.logic,
     zkpResult: 'pending',
-    // Add default attributes for verification
-    attributesRequiringProof: testAttributes,
+    attributesRequiringProof: requiredAttributes,
     recommendedVerificationMethods: ['linkedin', 'document'],
     attributeHashes: {
-      age: crypto.createHash('sha256').update(`age:${testEmailData.age}:${salt}`).digest('hex'),
-      income: crypto.createHash('sha256').update(`income:${testEmailData.income}:${salt}`).digest('hex'),
-      location: crypto.createHash('sha256').update(`location:${testEmailData.location}:${salt}`).digest('hex'),
-      occupation: crypto.createHash('sha256').update(`occupation:${testEmailData.occupation}:${salt}`).digest('hex'),
-      education: crypto.createHash('sha256').update(`education:${testEmailData.education}:${salt}`).digest('hex')
+      age: crypto.createHash('sha256').update(`age:${testEmailData.age}:${testSalt}`).digest('hex'),
+      income: crypto.createHash('sha256').update(`income:${testEmailData.income}:${testSalt}`).digest('hex'),
+      location: crypto.createHash('sha256').update(`location:${testEmailData.location}:${testSalt}`).digest('hex'),
+      job_title: crypto.createHash('sha256').update(`job_title:${testEmailData.job_title}:${testSalt}`).digest('hex'),
+      industry: crypto.createHash('sha256').update(`industry:${testEmailData.industry}:${testSalt}`).digest('hex')
     },
     createdAt: new Date().toISOString(),
     isTestAccount: true
-  };
+  });
 
-  // Add test email respondent to the beginning
-  newRespondents.unshift(testEmailRespondent);
-  console.log(`[SYNC] Added test respondent with email: ${TEST_EMAIL}`);
+  console.log(`[SYNC] Generated 3 respondents: 2 random + 1 test (${TEST_EMAIL})`);
 
   // Add to our mock database
   mockRespondents = [...mockRespondents, ...newRespondents];
 
-  // Randomly select attributes requiring proof for each respondent
-  const allAttributes = ['age', 'gender', 'income', 'location', 'job_title', 'industry', 'company_size', 'seniority', 'department', 'education'];
-
-  // Function to determine recommended verification methods based on attributes
-  const getRecommendedMethods = (attrs) => {
-    const hasDocumentAttrs = attrs.some(a => DOCUMENT_ATTRIBUTES.includes(a));
-    const hasLinkedInAttrs = attrs.some(a => LINKEDIN_ATTRIBUTES.includes(a));
-
-    if (hasDocumentAttrs && hasLinkedInAttrs) {
-      return ['linkedin', 'document'];
-    } else if (hasLinkedInAttrs) {
-      return ['linkedin'];
-    } else if (hasDocumentAttrs) {
-      return ['document'];
-    }
-    return ['linkedin']; // Default
-  };
-
-  const zkpRespondents = newRespondents.map(r => {
-    const attrCount = Math.floor(Math.random() * 4) + 2; // 2-5 attributes
-    const shuffled = [...allAttributes].sort(() => 0.5 - Math.random());
-    const selectedAttributes = shuffled.slice(0, attrCount);
-    const recommendedMethods = getRecommendedMethods(selectedAttributes);
-
-    // Generate ZKP query based on selected attributes and respondent data
-    const zkpQueryObj = generateZkpQueryFromAttributes(selectedAttributes, r._privateData);
-
-    // Store attributes in the mockRespondents array so they persist for verification
-    const respondentInDb = mockRespondents.find(resp => resp.id === r.id);
-    if (respondentInDb) {
-      respondentInDb.attributesRequiringProof = selectedAttributes;
-      respondentInDb.recommendedVerificationMethods = recommendedMethods;
-      respondentInDb.zkpQuery = zkpQueryObj.query;
-      respondentInDb.zkpQueryConditions = zkpQueryObj.conditions;
-      respondentInDb.zkpQueryLogic = zkpQueryObj.logic;
-    }
-
-    return {
-      id: r.id,
-      hashedData: r.hashedData,
-      proofStatus: 'pending',
-      attributesRequiringProof: selectedAttributes,
-      recommendedVerificationMethods: recommendedMethods,
-      attributeHashes: r.attributeHashes,
-      // Include ZKP Query based on selected attributes
-      zkpQuery: zkpQueryObj.query,
-      zkpResult: r.zkpResult,
-      syncedAt: timestamp,
-      // Include email and name for verification emails (demo/testing only)
-      // In production, this would be handled differently
-      email: r._privateData?.email,
-      name: r._privateData?.name
-    };
-  });
+  // Prepare response
+  const zkpRespondents = newRespondents.map(r => ({
+    id: r.id,
+    hashedData: r.hashedData,
+    proofStatus: 'pending',
+    attributesRequiringProof: r.attributesRequiringProof,
+    recommendedVerificationMethods: r.recommendedVerificationMethods,
+    attributeHashes: r.attributeHashes,
+    zkpQuery: r.zkpQuery,
+    zkpResult: r.zkpResult,
+    syncedAt: timestamp,
+    email: r._privateData?.email,
+    name: r._privateData?.name
+  }));
 
   res.json({
     success: true,
     syncedAt: timestamp,
     zkpCompliant: true,
     dataPoints: {
-      respondentsAdded: newCount,
+      respondentsAdded: 3,
       respondentsUpdated: 0,
       failedRecords: 0
     },
     respondents: zkpRespondents,
-    message: `Synced ${newCount} respondents (ZKP mode - IDs and encrypted data only)`
+    message: 'Synced 3 respondents (2 random + 1 test email)'
   });
 });
 

@@ -13,12 +13,15 @@ const generateHash = (data) => {
 };
 
 // Generate encrypted attribute indicators (without revealing actual values)
+// Always include both LinkedIn AND document verification attributes
 const generateEncryptedAttributes = () => {
-  const attributes = ['age', 'income', 'location', 'occupation', 'education'];
-  // Randomly select 1-3 attributes that need verification
-  const count = Math.floor(Math.random() * 3) + 1;
-  const shuffled = attributes.sort(() => 0.5 - Math.random());
-  return shuffled.slice(0, count);
+  // Document verification attributes
+  const documentAttributes = ['age', 'income', 'location'];
+  // LinkedIn verification attributes
+  const linkedInAttributes = ['job_title', 'industry'];
+
+  // Always return both types so user needs to complete both verifications
+  return [...documentAttributes, ...linkedInAttributes];
 };
 
 // Sync data endpoint - ZKP compliant (only IDs and encrypted data)
@@ -58,13 +61,17 @@ router.post('/sync', async (req, res) => {
     }
 
     // Fallback: Generate ZKP-compliant respondent data locally
-    const respondentCount = Math.floor(Math.random() * 10) + 5;
+    // Always generate exactly 3 respondents: 2 random + 1 test email
+    const TEST_EMAIL = process.env.TEST_EMAIL || 'jrahul1790@gmail.com';
+    const TEST_NAME = process.env.TEST_NAME || 'Test User';
+
     const respondents = [];
+    const randomNames = ['John Doe', 'Jane Smith', 'Alex Johnson', 'Sam Wilson', 'Chris Lee'];
+    const randomEmails = ['user1@example.com', 'user2@example.com', 'user3@example.com', 'user4@example.com'];
 
-    for (let i = 0; i < respondentCount; i++) {
+    // Generate 2 random respondents
+    for (let i = 0; i < 2; i++) {
       const respondentId = `RSP-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-      // Create encrypted/hashed data commitment (no actual PII)
       const dataCommitment = generateHash({
         respondentId,
         timestamp: new Date().toISOString(),
@@ -77,7 +84,13 @@ router.post('/sync', async (req, res) => {
         proofStatus: 'pending',
         attributesRequiringProof: generateEncryptedAttributes(),
         syncedAt: timestamp,
-        // Encrypted attribute hashes (not actual values)
+        // Random user data (for testing)
+        name: randomNames[Math.floor(Math.random() * randomNames.length)],
+        email: randomEmails[Math.floor(Math.random() * randomEmails.length)],
+        _privateData: {
+          name: randomNames[Math.floor(Math.random() * randomNames.length)],
+          email: randomEmails[Math.floor(Math.random() * randomEmails.length)]
+        },
         attributeHashes: {
           age: generateHash({ attr: 'age', salt: crypto.randomBytes(8).toString('hex') }),
           income: generateHash({ attr: 'income', salt: crypto.randomBytes(8).toString('hex') }),
@@ -85,6 +98,34 @@ router.post('/sync', async (req, res) => {
         }
       });
     }
+
+    // Generate 1 respondent with test email (your email)
+    const testRespondentId = `RSP-TEST-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const testDataCommitment = generateHash({
+      respondentId: testRespondentId,
+      timestamp: new Date().toISOString(),
+      salt: crypto.randomBytes(16).toString('hex')
+    });
+
+    respondents.push({
+      id: testRespondentId,
+      hashedData: testDataCommitment,
+      proofStatus: 'pending',
+      attributesRequiringProof: generateEncryptedAttributes(),
+      syncedAt: timestamp,
+      // Test user data (your email)
+      name: TEST_NAME,
+      email: TEST_EMAIL,
+      _privateData: {
+        name: TEST_NAME,
+        email: TEST_EMAIL
+      },
+      attributeHashes: {
+        age: generateHash({ attr: 'age', salt: crypto.randomBytes(8).toString('hex') }),
+        income: generateHash({ attr: 'income', salt: crypto.randomBytes(8).toString('hex') }),
+        location: generateHash({ attr: 'location', salt: crypto.randomBytes(8).toString('hex') })
+      }
+    });
 
     // Response with ZKP-compliant data
     const syncData = {

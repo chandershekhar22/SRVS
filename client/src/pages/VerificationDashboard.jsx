@@ -36,6 +36,34 @@ export default function VerificationDashboard() {
       }
     }
 
+    // Handle partial verification coming from email link
+    if (data && data.fromVerification && data.alreadyVerifiedAttributes) {
+      // This is a partial verification - set up session with already verified attributes
+      const sessionExpiry = new Date(Date.now() + SESSION_DURATION).toISOString();
+
+      // Determine which methods are already verified based on attributes
+      const verifiedMethods = [];
+      const alreadyVerified = data.alreadyVerifiedAttributes || [];
+
+      if (alreadyVerified.some(attr => LINKEDIN_ATTRIBUTES.includes(attr.toLowerCase().replace(' ', '_')))) {
+        verifiedMethods.push('linkedin');
+      }
+      if (alreadyVerified.some(attr => DOCUMENT_ATTRIBUTES.includes(attr.toLowerCase().replace(' ', '_')))) {
+        verifiedMethods.push('document');
+      }
+
+      data = {
+        ...data,
+        sessionExpiry,
+        verificationToken: data.token,
+        verifiedMethods,
+        // All attributes (verified + pending)
+        allAttributes: [...alreadyVerified, ...(data.attributesRequiringProof || [])],
+        // Override attributesRequiringProof to include all (for progress calculation)
+        attributesRequiringProof: [...alreadyVerified, ...(data.attributesRequiringProof || [])]
+      };
+    }
+
     if (!data || !data.sessionExpiry) {
       // No valid session, redirect to home
       navigate('/');
@@ -92,6 +120,7 @@ export default function VerificationDashboard() {
 
     const allAttributes = sessionData.attributesRequiringProof || [];
     const verifiedMethods = sessionData.verifiedMethods || [];
+    const alreadyVerifiedAttrs = sessionData.alreadyVerifiedAttributes || [];
 
     const verified = [];
     const pending = [];
@@ -101,7 +130,15 @@ export default function VerificationDashboard() {
       const isLinkedInAttr = LINKEDIN_ATTRIBUTES.includes(attrLower);
       const isDocumentAttr = DOCUMENT_ATTRIBUTES.includes(attrLower);
 
-      if (isLinkedInAttr && verifiedMethods.includes('linkedin')) {
+      // Check if this attribute was already verified (from partial verification)
+      const wasAlreadyVerified = alreadyVerifiedAttrs.some(
+        a => a.toLowerCase().replace(' ', '_') === attrLower
+      );
+
+      if (wasAlreadyVerified) {
+        // Already verified from previous session
+        verified.push({ name: attr, method: isLinkedInAttr ? 'linkedin' : 'document' });
+      } else if (isLinkedInAttr && verifiedMethods.includes('linkedin')) {
         verified.push({ name: attr, method: 'linkedin' });
       } else if (isDocumentAttr && verifiedMethods.includes('document')) {
         verified.push({ name: attr, method: 'document' });

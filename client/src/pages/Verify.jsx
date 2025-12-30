@@ -54,6 +54,24 @@ export default function Verify() {
     localStorage.setItem('attributesRequiringProof', JSON.stringify(tokenData.attributesRequiringProof || []));
     localStorage.setItem('recommendedVerificationMethods', JSON.stringify(tokenData.recommendedVerificationMethods || ['linkedin']));
     localStorage.setItem('showVerificationFlow', 'true');
+    localStorage.setItem('verificationToken', token);
+    localStorage.setItem('respondentId', tokenData.respondentId);
+
+    // If this is a partial verification, go directly to verification dashboard
+    if (tokenData.isPartialVerification) {
+      localStorage.setItem('alreadyVerifiedAttributes', JSON.stringify(tokenData.alreadyVerifiedAttributes || []));
+      navigate('/verification-dashboard', {
+        state: {
+          fromVerification: true,
+          token: token,
+          respondentId: tokenData.respondentId,
+          attributesRequiringProof: tokenData.attributesRequiringProof,
+          alreadyVerifiedAttributes: tokenData.alreadyVerifiedAttributes || [],
+          recommendedVerificationMethods: tokenData.recommendedVerificationMethods
+        }
+      });
+      return;
+    }
 
     // Navigate to signup with verification data for one-time ZKP verification
     // No credentials will be stored - just verify and redirect to home
@@ -110,11 +128,19 @@ export default function Verify() {
       <div className="bg-white rounded-2xl shadow-xl p-8 max-w-lg w-full">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-3xl text-green-600">✓</span>
+          <div className={`w-16 h-16 ${tokenData?.isPartialVerification ? 'bg-orange-100' : 'bg-green-100'} rounded-full flex items-center justify-center mx-auto mb-4`}>
+            <span className={`text-3xl ${tokenData?.isPartialVerification ? 'text-orange-600' : 'text-green-600'}`}>
+              {tokenData?.isPartialVerification ? '⏳' : '✓'}
+            </span>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Email Verified!</h1>
-          <p className="text-gray-600">Your email has been successfully verified</p>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            {tokenData?.isPartialVerification ? 'Welcome Back!' : 'Email Verified!'}
+          </h1>
+          <p className="text-gray-600">
+            {tokenData?.isPartialVerification
+              ? 'Complete your remaining verification to unlock full access'
+              : 'Your email has been successfully verified'}
+          </p>
         </div>
 
         {/* Respondent ID - PROMINENTLY DISPLAYED */}
@@ -146,10 +172,29 @@ export default function Verify() {
           </p>
         </div>
 
+        {/* Already Verified Attributes (for partial verification) */}
+        {tokenData?.isPartialVerification && tokenData?.alreadyVerifiedAttributes?.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-sm font-semibold text-green-600 uppercase mb-3">✓ Already Verified</h2>
+            <div className="flex flex-wrap gap-2">
+              {tokenData.alreadyVerifiedAttributes.map((attr, idx) => (
+                <span
+                  key={idx}
+                  className="px-4 py-2 rounded-full text-sm font-medium bg-green-100 text-green-800"
+                >
+                  {formatAttributeName(attr)}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Attributes to Verify */}
         {tokenData?.attributesRequiringProof?.length > 0 && (
           <div className="mb-6">
-            <h2 className="text-sm font-semibold text-gray-500 uppercase mb-3">Attributes to Verify</h2>
+            <h2 className="text-sm font-semibold text-gray-500 uppercase mb-3">
+              {tokenData?.isPartialVerification ? '⏳ Remaining to Verify' : 'Attributes to Verify'}
+            </h2>
             <div className="flex flex-wrap gap-2">
               {tokenData.attributesRequiringProof.map((attr, idx) => {
                 const isLinkedInAttr = LINKEDIN_ATTRIBUTES.includes(attr.toLowerCase().replace(' ', '_'));
@@ -181,9 +226,13 @@ export default function Verify() {
         {/* Action Button */}
         <button
           onClick={handleContinueToSignup}
-          className="w-full py-4 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl hover:from-green-700 hover:to-green-800 font-bold text-lg transition shadow-lg"
+          className={`w-full py-4 text-white rounded-xl font-bold text-lg transition shadow-lg ${
+            tokenData?.isPartialVerification
+              ? 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700'
+              : 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800'
+          }`}
         >
-          Complete Verification
+          {tokenData?.isPartialVerification ? 'Continue to Dashboard →' : 'Complete Verification'}
         </button>
       </div>
     </div>
