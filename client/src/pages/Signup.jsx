@@ -55,7 +55,7 @@ export default function Signup() {
     },
     {
       id: 'respondent',
-      title: 'Respondent',
+      title: 'Panelist',
       description: 'Participate in surveys and earn rewards using email and password',
       icon: '👤',
       color: 'from-green-600 to-green-700'

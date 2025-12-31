@@ -16,7 +16,31 @@ export default function Panelists() {
   const [smtpCredentials, setSmtpCredentials] = useState({ user: '', pass: '' });
   const [showSmtpForm, setShowSmtpForm] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [useResendApi, setUseResendApi] = useState(false);
+  const [useResendApi, setUseResendApi] = useState(true);
+  const [showZkpResultModal, setShowZkpResultModal] = useState(false);
+  const [selectedZkpResult, setSelectedZkpResult] = useState(null);
+
+  // Generate random ZKP results for sub-queries
+  const generateZkpSubResults = (respondent) => {
+    const attributes = respondent.attributesRequiringProof || ['age', 'income', 'location', 'job_title', 'industry'];
+    const results = {};
+    attributes.forEach(attr => {
+      // Generate random result based on respondent id hash for consistency
+      const hash = respondent.id.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
+      results[attr] = (hash + attr.length) % 3 !== 0; // Random but consistent per respondent
+    });
+    return results;
+  };
+
+  const handleViewZkpResult = (respondent) => {
+    const subResults = generateZkpSubResults(respondent);
+    setSelectedZkpResult({
+      respondent,
+      subResults,
+      overallResult: respondent.proofStatus === 'verified'
+    });
+    setShowZkpResultModal(true);
+  };
 
   // Function to load panelists and fetch verification status
   const loadPanelists = async (showRefreshMessage = false) => {
@@ -442,15 +466,16 @@ export default function Panelists() {
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        {respondent.proofStatus === 'verified' ? (
-                          <span className="px-3 py-1 bg-green-100 text-green-700 text-xs rounded-full font-semibold">
-                            Yes
-                          </span>
-                        ) : (
-                          <span className="px-3 py-1 bg-yellow-100 text-yellow-700 text-xs rounded-full font-semibold">
-                            Pending
-                          </span>
-                        )}
+                        <button
+                          onClick={() => handleViewZkpResult(respondent)}
+                          className={`px-3 py-1 text-xs rounded-full font-semibold cursor-pointer hover:opacity-80 transition ${
+                            respondent.proofStatus === 'verified'
+                              ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                              : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
+                          }`}
+                        >
+                          {respondent.proofStatus === 'verified' ? 'View Results' : 'View Details'}
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -682,6 +707,91 @@ export default function Panelists() {
                 </button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ZKP Result Details Modal */}
+      {showZkpResultModal && selectedZkpResult && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl p-8 max-w-lg w-full mx-4">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">ZKP Verification Results</h2>
+            <p className="text-gray-600 text-sm mb-6">
+              Sub-query results for respondent verification
+            </p>
+
+            {/* Respondent ID */}
+            <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+              <p className="text-xs text-gray-500 mb-1">Respondent ID</p>
+              <p className="font-mono text-sm text-gray-900 break-all">{selectedZkpResult.respondent.id}</p>
+            </div>
+
+            {/* ZKP Query */}
+            {selectedZkpResult.respondent.zkpQuery && (
+              <div className="mb-4 p-3 bg-purple-50 rounded-lg border border-purple-200">
+                <p className="text-xs text-purple-600 mb-1">ZKP Query</p>
+                <p className="font-mono text-xs text-purple-800">{selectedZkpResult.respondent.zkpQuery}</p>
+              </div>
+            )}
+
+            {/* Sub-query Results */}
+            <div className="mb-6">
+              <p className="text-sm font-semibold text-gray-700 mb-3">Attribute Verification Results</p>
+              <div className="space-y-2">
+                {Object.entries(selectedZkpResult.subResults).map(([attribute, result]) => (
+                  <div
+                    key={attribute}
+                    className={`flex justify-between items-center p-3 rounded-lg border ${
+                      result
+                        ? 'bg-green-50 border-green-200'
+                        : 'bg-red-50 border-red-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full ${result ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                      <span className="text-sm font-medium text-gray-700 capitalize">
+                        {attribute.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                      result
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-red-100 text-red-700'
+                    }`}>
+                      {result ? 'Yes' : 'No'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Overall Result */}
+            <div className={`mb-6 p-4 rounded-lg border ${
+              selectedZkpResult.overallResult
+                ? 'bg-green-50 border-green-300'
+                : 'bg-yellow-50 border-yellow-300'
+            }`}>
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-semibold text-gray-700">Overall ZKP Result</span>
+                <span className={`px-4 py-1.5 rounded-full text-sm font-bold ${
+                  selectedZkpResult.overallResult
+                    ? 'bg-green-500 text-white'
+                    : 'bg-yellow-500 text-white'
+                }`}>
+                  {selectedZkpResult.overallResult ? 'Verified' : 'Pending'}
+                </span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                setShowZkpResultModal(false);
+                setSelectedZkpResult(null);
+              }}
+              className="w-full px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 font-semibold transition"
+            >
+              Close
+            </button>
           </div>
         </div>
       )}

@@ -44,6 +44,10 @@ export default function RespondentDashboard() {
   const [linkedinEmail, setLinkedinEmail] = useState('');
   const [linkedinPassword, setLinkedinPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [requiredDocuments, setRequiredDocuments] = useState([]);
+  const [uploadedDocuments, setUploadedDocuments] = useState({});
+  const [relatedAttributes, setRelatedAttributes] = useState([]);
+  const [digiLockerStep, setDigiLockerStep] = useState('login'); // 'login', 'verifying', 'complete'
 
   // Handle clicking on a pending attribute
   const handlePendingAttributeClick = (attr) => {
@@ -51,9 +55,30 @@ export default function RespondentDashboard() {
       const attrName = attr.name.toLowerCase().replace(' ', '_');
       setAttributeToVerify(attr);
       setAttributesRequiringProof([attrName]);
+
+      // Set required documents for this attribute
+      if (attr.requiredDocs) {
+        setRequiredDocuments(attr.requiredDocs);
+        setUploadedDocuments({});
+      }
+
+      // Find all related attributes with the same verification method
+      const related = attributes.filter(a =>
+        (a.status === 'pending' || a.status === 'expiring') &&
+        a.verifyMethod === attr.verifyMethod
+      );
+      setRelatedAttributes(related);
+
       const methods = getRecommendedMethods([attrName]);
       setRecommendedMethods(methods);
-      setSelectedMethod(methods[0]);
+
+      // Auto-select the appropriate method based on attribute
+      if (attr.verifyMethod) {
+        setSelectedMethod(attr.verifyMethod);
+      } else {
+        setSelectedMethod(methods[0]);
+      }
+
       setActiveTab('verify');
       setVerifyStep(1);
     }
@@ -118,12 +143,14 @@ export default function RespondentDashboard() {
 
   // Default attributes data for new respondents
   const defaultAttributes = [
-    { name: 'Age', status: 'verified', source: 'via Panel' },
+    { name: 'Age', status: 'pending', source: 'via Pending', verifyMethod: 'document', requiredDocs: ['ID Card', 'Birth Certificate'] },
     { name: 'Gender', status: 'verified', source: 'via Panel' },
     { name: 'Location', status: 'verified', source: 'via Panel' },
-    { name: 'Job Title', status: 'pending', source: 'via Pending' },
-    { name: 'Industry', status: 'pending', source: 'via Pending' },
+    { name: 'Job Title', status: 'pending', source: 'via Pending', verifyMethod: 'linkedin', requiredDocs: ['LinkedIn Profile'] },
+    { name: 'Industry', status: 'pending', source: 'via Pending', verifyMethod: 'linkedin', requiredDocs: ['LinkedIn Profile'] },
     { name: 'Company Size', status: 'verified', source: 'via Panel' },
+    { name: 'Income', status: 'pending', source: 'via Pending', verifyMethod: 'document', requiredDocs: ['Pay Stub', 'Tax Return', 'Bank Statement'] },
+    { name: 'Education', status: 'pending', source: 'via Pending', verifyMethod: 'document', requiredDocs: ['Degree Certificate', 'Transcript'] },
   ];
 
   // Get user-specific storage key
@@ -144,27 +171,23 @@ export default function RespondentDashboard() {
 
     // If came back from successful LinkedIn verification
     if (verificationSuccess === 'true') {
-      const verifiedAttrs = JSON.parse(localStorage.getItem('attributesRequiringProof') || '[]');
-
-      if (verifiedAttrs.length > 0) {
-        // Update attributes status to verified
-        setAttributes(prevAttrs => {
-          const updated = prevAttrs.map(attr => {
-            const attrKey = attr.name.toLowerCase().replace(' ', '_');
-            if (verifiedAttrs.includes(attrKey)) {
-              return {
-                ...attr,
-                status: 'verified',
-                source: 'via LinkedIn'
-              };
-            }
-            return attr;
-          });
-          // Save to user-specific localStorage
-          localStorage.setItem(getUserAttributesKey(), JSON.stringify(updated));
-          return updated;
+      // Mark ALL LinkedIn-related attributes as verified (not just the ones selected)
+      setAttributes(prevAttrs => {
+        const updated = prevAttrs.map(attr => {
+          // Verify all attributes that use LinkedIn as verification method
+          if (attr.verifyMethod === 'linkedin' && (attr.status === 'pending' || attr.status === 'expiring')) {
+            return {
+              ...attr,
+              status: 'verified',
+              source: 'via LinkedIn'
+            };
+          }
+          return attr;
         });
-      }
+        // Save to user-specific localStorage
+        localStorage.setItem(getUserAttributesKey(), JSON.stringify(updated));
+        return updated;
+      });
 
       // Clear the verification flags
       localStorage.removeItem('linkedinVerificationSuccess');
@@ -785,20 +808,23 @@ export default function RespondentDashboard() {
                       Connect your LinkedIn account to verify your professional attributes securely via OAuth.
                     </p>
 
-                    {/* Attributes being verified */}
-                    {attributesRequiringProof.length > 0 && (
+                    {/* All LinkedIn Attributes that will be verified */}
+                    {relatedAttributes.length > 0 && (
                       <div className="mb-6 p-4 bg-blue-50 rounded-xl border border-blue-200">
-                        <p className="text-xs text-blue-600 uppercase font-semibold mb-2">Attributes to Verify</p>
+                        <p className="text-xs text-blue-600 uppercase font-semibold mb-2">Attributes to Verify via LinkedIn</p>
                         <div className="flex flex-wrap gap-2">
-                          {attributesRequiringProof.map((attr, idx) => (
+                          {relatedAttributes.map((attr, idx) => (
                             <span
                               key={idx}
                               className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium"
                             >
-                              {formatAttributeName(attr)}
+                              {attr.name}
                             </span>
                           ))}
                         </div>
+                        <p className="text-xs text-blue-600 mt-2">
+                          All {relatedAttributes.length} LinkedIn attributes will be verified at once
+                        </p>
                       </div>
                     )}
 
@@ -835,8 +861,9 @@ export default function RespondentDashboard() {
                             fromDashboard: true
                           }));
 
-                          // Store attributes for callback
-                          localStorage.setItem('attributesRequiringProof', JSON.stringify(attributesRequiringProof));
+                          // Store all related LinkedIn attributes for callback (verify all at once)
+                          const linkedInAttrsToVerify = relatedAttributes.map(a => a.name.toLowerCase().replace(' ', '_'));
+                          localStorage.setItem('attributesRequiringProof', JSON.stringify(linkedInAttrsToVerify));
 
                           // Get LinkedIn auth URL
                           const response = await fetch(`${serverUrl}/api/auth/linkedin`);
@@ -895,44 +922,219 @@ export default function RespondentDashboard() {
                 </div>
               )}
 
-              {/* Step 3: Document Upload */}
+              {/* Step 3: Document Upload - DigiLocker Flow */}
               {verifyStep === 3 && selectedMethod === 'document' && (
-                <div className="bg-white rounded-2xl border border-gray-200 p-8">
-                  <h1 className="text-2xl font-bold text-gray-900 mb-2">Upload Documents</h1>
-                  <p className="text-gray-500 mb-6">Upload supporting documents to verify your attributes</p>
+                <>
+                  {/* DigiLocker Login Screen */}
+                  {digiLockerStep === 'login' && (
+                    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden max-w-md mx-auto">
+                      {/* DigiLocker Header */}
+                      <div className="bg-gradient-to-r from-[#1a237e] to-[#0d47a1] px-8 py-6 text-center">
+                        <div className="flex items-center justify-center gap-3 mb-2">
+                          <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center">
+                            <svg className="w-8 h-8 text-[#1a237e]" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 3c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm7 13H5v-.23c0-.62.28-1.2.76-1.58C7.47 15.82 9.64 15 12 15s4.53.82 6.24 2.19c.48.38.76.97.76 1.58V19z"/>
+                            </svg>
+                          </div>
+                        </div>
+                        <h2 className="text-white text-xl font-bold">DigiLocker</h2>
+                        <p className="text-blue-100 text-sm mt-1">Government of India</p>
+                      </div>
 
-                  <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center mb-6">
-                    <svg className="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                    </svg>
-                    <p className="text-gray-600 mb-2">Drag and drop your files here, or</p>
-                    <button
-                      onClick={() => {
-                        setIsLoggingIn(true);
-                        setTimeout(() => {
-                          setIsLoggingIn(false);
-                          setVerifyStep(4);
-                        }, 1500);
-                      }}
-                      className="text-purple-600 font-semibold hover:text-purple-700"
-                    >
-                      Browse files
-                    </button>
-                    <p className="text-xs text-gray-400 mt-2">Supported: PDF, JPG, PNG (Max 10MB)</p>
-                  </div>
+                      {/* Login Form */}
+                      <div className="p-8">
+                        <p className="text-gray-600 text-sm text-center mb-6">
+                          Sign in to DigiLocker to verify your documents securely
+                        </p>
 
-                  <div className="flex items-center gap-4">
-                    <button
-                      onClick={() => setVerifyStep(2)}
-                      className="flex items-center gap-2 px-5 py-2.5 text-gray-600 hover:text-gray-900 font-medium"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                      </svg>
-                      Back
-                    </button>
-                  </div>
-                </div>
+                        <div className="space-y-4 mb-6">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Aadhaar / Mobile / Username</label>
+                            <input
+                              type="text"
+                              placeholder="Enter Aadhaar number or mobile"
+                              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">PIN / Password</label>
+                            <input
+                              type="password"
+                              placeholder="Enter your PIN"
+                              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => {
+                            setDigiLockerStep('verifying');
+                            // Simulate verification process
+                            setTimeout(() => {
+                              setDigiLockerStep('complete');
+                            }, 3000);
+                          }}
+                          className="w-full py-4 bg-gradient-to-r from-[#1a237e] to-[#0d47a1] text-white rounded-lg font-semibold hover:from-[#0d47a1] hover:to-[#1a237e] transition flex items-center justify-center gap-2"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                          </svg>
+                          Sign In & Verify
+                        </button>
+
+                        <div className="mt-6 pt-6 border-t border-gray-200">
+                          <div className="flex items-center justify-center gap-4 text-xs text-gray-500">
+                            <span>Secured by</span>
+                            <div className="flex items-center gap-2">
+                              <div className="w-6 h-6 bg-orange-500 rounded flex items-center justify-center">
+                                <span className="text-white text-xs font-bold">IN</span>
+                              </div>
+                              <span className="font-medium text-gray-700">Digital India</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Back Button */}
+                        <button
+                          onClick={() => {
+                            setVerifyStep(2);
+                            setDigiLockerStep('login');
+                          }}
+                          className="mt-6 w-full flex items-center justify-center gap-2 text-gray-600 hover:text-gray-900 font-medium"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                          </svg>
+                          Back to verification methods
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Verification Progress Screen */}
+                  {digiLockerStep === 'verifying' && (
+                    <div className="bg-white rounded-2xl border border-gray-200 p-8 max-w-md mx-auto text-center">
+                      {/* Animated Progress */}
+                      <div className="w-24 h-24 mx-auto mb-6 relative">
+                        <div className="absolute inset-0 rounded-full border-4 border-gray-200"></div>
+                        <div className="absolute inset-0 rounded-full border-4 border-blue-600 border-t-transparent animate-spin"></div>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <svg className="w-10 h-10 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                        </div>
+                      </div>
+
+                      <h2 className="text-xl font-bold text-gray-900 mb-2">Verifying Documents</h2>
+                      <p className="text-gray-500 mb-6">Please wait while we verify your documents from DigiLocker...</p>
+
+                      {/* Progress Steps */}
+                      <div className="space-y-3 text-left mb-6">
+                        <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
+                          <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          <span className="text-green-800 text-sm">Connected to DigiLocker</span>
+                        </div>
+                        <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
+                          <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          <span className="text-green-800 text-sm">Identity verified</span>
+                        </div>
+                        <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
+                          <svg className="animate-spin w-5 h-5 text-blue-600" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                          </svg>
+                          <span className="text-blue-800 text-sm">Fetching documents...</span>
+                        </div>
+                      </div>
+
+                      {/* Documents being verified */}
+                      <div className="p-4 bg-gray-50 rounded-lg">
+                        <p className="text-xs text-gray-500 uppercase font-semibold mb-2">Verifying Attributes</p>
+                        <div className="flex flex-wrap gap-2 justify-center">
+                          {relatedAttributes.map((attr, idx) => (
+                            <span key={idx} className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium animate-pulse">
+                              {attr.name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Verification Complete Screen */}
+                  {digiLockerStep === 'complete' && (
+                    <div className="bg-white rounded-2xl border border-gray-200 p-8 max-w-md mx-auto text-center">
+                      {/* Success Icon */}
+                      <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <svg className="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+
+                      <h2 className="text-2xl font-bold text-gray-900 mb-2">Verification Complete!</h2>
+                      <p className="text-gray-500 mb-6">All your document-based attributes have been verified successfully via DigiLocker.</p>
+
+                      {/* Verified Attributes */}
+                      <div className="mb-6 p-4 bg-green-50 rounded-xl border border-green-200">
+                        <p className="text-xs text-green-600 uppercase font-semibold mb-3">Verified Attributes</p>
+                        <div className="space-y-2">
+                          {relatedAttributes.map((attr, idx) => (
+                            <div key={idx} className="flex items-center justify-between p-2 bg-white rounded-lg">
+                              <span className="text-sm font-medium text-gray-800">{attr.name}</span>
+                              <span className="flex items-center gap-1 text-green-600 text-sm">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                                Verified
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* ZKP Notice */}
+                      <div className="bg-purple-50 rounded-lg p-4 mb-6 text-left">
+                        <p className="text-sm text-purple-700">
+                          <span className="font-semibold">Zero-Knowledge Proof:</span> Your documents were verified without exposing personal data.
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          // Mark all related document attributes as verified
+                          setAttributes(prevAttrs => {
+                            const updated = prevAttrs.map(attr => {
+                              if (attr.verifyMethod === 'document' && (attr.status === 'pending' || attr.status === 'expiring')) {
+                                return {
+                                  ...attr,
+                                  status: 'verified',
+                                  source: 'via DigiLocker'
+                                };
+                              }
+                              return attr;
+                            });
+                            localStorage.setItem(getUserAttributesKey(), JSON.stringify(updated));
+                            return updated;
+                          });
+                          // Navigate to profile/dashboard
+                          setActiveTab('profile');
+                          setVerifyStep(1);
+                          setDigiLockerStep('login');
+                        }}
+                        className="w-full py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition flex items-center justify-center gap-2"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                        </svg>
+                        Go to Dashboard
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
 
               {/* Step 3: Work Email */}
