@@ -15,6 +15,10 @@ dotenv.config();
 // Initialize Resend if API key is provided
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 console.log(`[RESEND] API Key configured: ${process.env.RESEND_API_KEY ? 'Yes' : 'No'}`);
+console.log(`[RESEND] Test email (only this email receives real emails): ${process.env.RESEND_TEST_EMAIL || 'NOT SET - all emails will be sent!'}`);
+if (!process.env.RESEND_TEST_EMAIL && process.env.RESEND_API_KEY) {
+  console.warn('[RESEND] WARNING: RESEND_TEST_EMAIL not set. In test mode, you can only send to your own email. Set RESEND_TEST_EMAIL to your Resend account email.');
+}
 
 // Store for verification tokens
 const verificationTokens = new Map();
@@ -291,20 +295,23 @@ app.post('/api/email/send-bulk', async (req, res) => {
 
   const results = [];
   const failed = [];
-  const emailPromises = [];
 
   // In Resend testing mode, only send real email to TEST_EMAIL
   // All other emails will be simulated (marked as sent without actually sending)
   const resendTestEmail = process.env.RESEND_TEST_EMAIL;
+  console.log(`[EMAIL] RESEND_TEST_EMAIL configured as: ${resendTestEmail || 'NOT SET'}`);
+
+  // Helper function to delay for rate limiting (Resend allows 2 req/sec in test mode)
+  const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
   for (const respondent of respondents) {
     const { id: respondentId, email, name, attributesRequiringProof, alreadyVerifiedAttributes } = respondent;
 
     // Check if this email should be simulated (not actually sent)
-    const shouldSimulate = emailMethod === 'resend' &&
-      resendTestEmail &&
-      email &&
-      email.toLowerCase() !== resendTestEmail.toLowerCase();
+    // In Resend test mode: ONLY send real email to the test email address
+    // All other emails MUST be simulated to avoid 403 errors
+    const isTestEmail = resendTestEmail && email && email.toLowerCase() === resendTestEmail.toLowerCase();
+    const shouldSimulate = emailMethod === 'resend' && !isTestEmail;
 
     if (!email) {
       failed.push({ respondentId, error: 'No email address' });
@@ -448,7 +455,7 @@ app.post('/api/email/send-bulk', async (req, res) => {
 
     // If in testing mode and this isn't the test email, simulate sending
     if (shouldSimulate) {
-      console.log(`[EMAIL] Simulated send to ${email} (testing mode - only real email sent to ${resendTestEmail})`);
+      console.log(`[EMAIL] Simulating send to ${email} (Resend test mode - only ${resendTestEmail || 'configured test email'} receives real emails)`);
       results.push({
         respondentId,
         email,
@@ -458,69 +465,65 @@ app.post('/api/email/send-bulk', async (req, res) => {
         messageId: `simulated-${Date.now()}-${respondentId}`,
         method: 'simulated'
       });
-      continue; // Skip actual sending
+      continue; // Skip actual sending - DO NOT call Resend API
     }
 
     // Send email using either Resend or SMTP
+    // For Resend: send sequentially with delay to avoid rate limits (2 req/sec in test mode)
     if (emailMethod === 'resend') {
-      emailPromises.push(
-        resend.emails.send({
+      try {
+        console.log(`[EMAIL] Sending REAL email via Resend to ${email}...`);
+        const response = await resend.emails.send({
           from: process.env.RESEND_FROM_EMAIL || 'SRVS <onboarding@resend.dev>',
           to: email,
           subject: emailContent.subject,
           html: emailContent.html,
           text: emailContent.text
-        })
-          .then(response => {
-            // Resend returns { data: { id: '...' }, error: null } on success
-            // or { data: null, error: { ... } } on failure
-            if (response.error) {
-              console.error(`[EMAIL] Resend API error for ${email}:`, response.error);
-              failed.push({ respondentId, email, error: response.error.message || 'Resend API error' });
-              return;
-            }
-            const messageId = response.data?.id || response.id;
-            console.log(`[EMAIL] Sent via Resend to ${email} - ID: ${messageId}`);
-            results.push({
-              respondentId,
-              email,
-              verificationLink,
-              token: token.substring(0, 8) + '...',
-              realEmailSent: true,
-              messageId: messageId,
-              method: 'resend'
-            });
-          })
-          .catch(error => {
-            console.error(`[EMAIL] Resend failed to send to ${email}:`, error.message || error);
-            failed.push({ respondentId, email, error: error.message || 'Unknown error' });
-          })
-      );
-    } else {
-      emailPromises.push(
-        transporter.sendMail(emailContent)
-          .then(info => {
-            console.log(`[EMAIL] Sent via SMTP to ${email} - MessageId: ${info.messageId}`);
-            results.push({
-              respondentId,
-              email,
-              verificationLink,
-              token: token.substring(0, 8) + '...',
-              realEmailSent: true,
-              messageId: info.messageId,
-              method: 'smtp'
-            });
-          })
-          .catch(error => {
-            console.error(`[EMAIL] SMTP failed to send to ${email}:`, error.message);
-            failed.push({ respondentId, email, error: error.message });
-          })
-      );
-    }
-  }
+        });
 
-  if (emailPromises.length > 0) {
-    await Promise.all(emailPromises);
+        // Resend returns { data: { id: '...' }, error: null } on success
+        // or { data: null, error: { ... } } on failure
+        if (response.error) {
+          console.error(`[EMAIL] Resend API error for ${email}:`, response.error);
+          failed.push({ respondentId, email, error: response.error.message || 'Resend API error' });
+        } else {
+          const messageId = response.data?.id || response.id;
+          console.log(`[EMAIL] Successfully sent via Resend to ${email} - ID: ${messageId}`);
+          results.push({
+            respondentId,
+            email,
+            verificationLink,
+            token: token.substring(0, 8) + '...',
+            realEmailSent: true,
+            messageId: messageId,
+            method: 'resend'
+          });
+        }
+
+        // Add delay between emails to avoid rate limiting (600ms = ~1.6 req/sec, safe under 2/sec limit)
+        await delay(600);
+      } catch (error) {
+        console.error(`[EMAIL] Resend failed to send to ${email}:`, error.message || error);
+        failed.push({ respondentId, email, error: error.message || 'Unknown error' });
+      }
+    } else {
+      try {
+        const info = await transporter.sendMail(emailContent);
+        console.log(`[EMAIL] Sent via SMTP to ${email} - MessageId: ${info.messageId}`);
+        results.push({
+          respondentId,
+          email,
+          verificationLink,
+          token: token.substring(0, 8) + '...',
+          realEmailSent: true,
+          messageId: info.messageId,
+          method: 'smtp'
+        });
+      } catch (error) {
+        console.error(`[EMAIL] SMTP failed to send to ${email}:`, error.message);
+        failed.push({ respondentId, email, error: error.message });
+      }
+    }
   }
 
   if (transporter) {
