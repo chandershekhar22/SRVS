@@ -20,24 +20,65 @@ export default function InsightRespondents() {
   const [showZkpResultModal, setShowZkpResultModal] = useState(false);
   const [selectedZkpResult, setSelectedZkpResult] = useState(null);
 
-  // Generate random ZKP results for sub-queries
+  // Generate dynamic ZKP results based on actual verification status
   const generateZkpSubResults = (respondent) => {
     const attributes = respondent.attributesRequiringProof || ['age', 'income', 'location', 'job_title', 'industry'];
+    const verifiedAttributes = respondent.verifiedAttributes || [];
+    const verificationMethod = respondent.verificationMethod || null;
+    const proofStatus = respondent.proofStatus || 'pending';
+
     const results = {};
+
+    // Define which attributes are verified by which method
+    const linkedinAttributes = ['job_title', 'industry', 'company_size', 'occupation', 'seniority', 'department'];
+    const documentAttributes = ['age', 'gender', 'income', 'location', 'education'];
+
     attributes.forEach(attr => {
-      // Generate random result based on respondent id hash for consistency
-      const hash = respondent.id.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-      results[attr] = (hash + attr.length) % 3 !== 0; // Random but consistent per respondent
+      const attrLower = attr.toLowerCase().replace(' ', '_');
+
+      // If fully verified, all attributes are Yes
+      if (proofStatus === 'verified') {
+        results[attr] = 'yes';
+      }
+      // If attribute is in verifiedAttributes array, it's verified
+      else if (verifiedAttributes.includes(attr) || verifiedAttributes.includes(attrLower)) {
+        results[attr] = 'yes';
+      }
+      // If partial verification with a method, check if this attribute matches the method
+      else if (proofStatus === 'partial' && verificationMethod) {
+        if (verificationMethod === 'linkedin' && linkedinAttributes.includes(attrLower)) {
+          results[attr] = 'yes';
+        } else if (verificationMethod === 'document' && documentAttributes.includes(attrLower)) {
+          results[attr] = 'yes';
+        } else {
+          results[attr] = 'pending';
+        }
+      }
+      // Default: pending
+      else {
+        results[attr] = 'pending';
+      }
     });
+
     return results;
   };
 
   const handleViewZkpResult = (respondent) => {
     const subResults = generateZkpSubResults(respondent);
+    const proofStatus = respondent.proofStatus || 'pending';
+
+    // Calculate overall result based on actual verification
+    let overallResult = 'pending';
+    if (proofStatus === 'verified') {
+      overallResult = 'verified';
+    } else if (proofStatus === 'partial') {
+      overallResult = 'partial';
+    }
+
     setSelectedZkpResult({
       respondent,
       subResults,
-      overallResult: respondent.proofStatus === 'verified'
+      overallResult
     });
     setShowZkpResultModal(true);
   };
@@ -66,8 +107,17 @@ export default function InsightRespondents() {
           const updatedPanelists = savedPanelists.map(p => {
             const serverStatus = data.verifications[p.id];
             if (serverStatus) {
-              // If user is "partial" verified, reset emailSent so they get reminder email on next sync
-              const shouldResetEmail = serverStatus.proofStatus === 'partial' && p.emailSent;
+              // Determine email status based on proof status
+              let emailSentStatus = p.emailSent;
+
+              // If fully verified, they must have received an email - mark as sent
+              if (serverStatus.proofStatus === 'verified') {
+                emailSentStatus = true;
+              }
+              // If partial verified and email was already sent, reset so they can get reminder for remaining attributes
+              else if (serverStatus.proofStatus === 'partial' && p.emailSent) {
+                emailSentStatus = false;
+              }
 
               return {
                 ...p,
@@ -77,8 +127,7 @@ export default function InsightRespondents() {
                 verifiedAttributes: serverStatus.verifiedAttributes,
                 verificationMethod: serverStatus.verificationMethod,
                 verificationCompletedAt: serverStatus.completedAt,
-                // Reset emailSent for partial verified users so they can receive reminder emails
-                emailSent: shouldResetEmail ? false : p.emailSent,
+                emailSent: emailSentStatus,
                 // Track remaining attributes that need verification
                 remainingAttributes: serverStatus.proofStatus === 'partial'
                   ? (p.attributesRequiringProof || []).filter(attr => !(serverStatus.verifiedAttributes || []).includes(attr))
@@ -389,7 +438,7 @@ export default function InsightRespondents() {
                         title="Select all unverified respondents"
                       />
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Respondent ID</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Panelist ID</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Attributes</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">ZKP Query</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Email Status</th>
@@ -715,9 +764,9 @@ export default function InsightRespondents() {
               Sub-query results for respondent verification
             </p>
 
-            {/* Respondent ID */}
+            {/* Panelist ID */}
             <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-              <p className="text-xs text-gray-500 mb-1">Respondent ID</p>
+              <p className="text-xs text-gray-500 mb-1">Panelist ID</p>
               <p className="font-mono text-sm text-gray-900 break-all">{selectedZkpResult.respondent.id}</p>
             </div>
 
@@ -733,47 +782,69 @@ export default function InsightRespondents() {
             <div className="mb-6">
               <p className="text-sm font-semibold text-gray-700 mb-3">Attribute Verification Results</p>
               <div className="space-y-2">
-                {Object.entries(selectedZkpResult.subResults).map(([attribute, result]) => (
-                  <div
-                    key={attribute}
-                    className={`flex justify-between items-center p-3 rounded-lg border ${
-                      result
-                        ? 'bg-green-50 border-green-200'
-                        : 'bg-red-50 border-red-200'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${result ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                      <span className="text-sm font-medium text-gray-700 capitalize">
-                        {attribute.replace(/_/g, ' ')}
+                {Object.entries(selectedZkpResult.subResults).map(([attribute, result]) => {
+                  const isVerified = result === 'yes';
+                  const isPending = result === 'pending';
+
+                  return (
+                    <div
+                      key={attribute}
+                      className={`flex justify-between items-center p-3 rounded-lg border ${
+                        isVerified
+                          ? 'bg-green-50 border-green-200'
+                          : 'bg-yellow-50 border-yellow-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full ${isVerified ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
+                        <span className="text-sm font-medium text-gray-700 capitalize">
+                          {attribute.replace(/_/g, ' ')}
+                        </span>
+                      </div>
+                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                        isVerified
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-yellow-100 text-yellow-700'
+                      }`}>
+                        {isVerified ? 'Yes' : 'Pending'}
                       </span>
                     </div>
-                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                      result
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-red-100 text-red-700'
-                    }`}>
-                      {result ? 'Yes' : 'No'}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
+            {/* Verification Method Info */}
+            {selectedZkpResult.respondent.verificationMethod && (
+              <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <p className="text-xs text-blue-600 mb-1">Verification Method Used</p>
+                <p className="text-sm font-semibold text-blue-800 capitalize">
+                  {selectedZkpResult.respondent.verificationMethod === 'linkedin' ? 'LinkedIn' :
+                   selectedZkpResult.respondent.verificationMethod === 'document' ? 'DigiLocker / Document' :
+                   selectedZkpResult.respondent.verificationMethod}
+                </p>
+              </div>
+            )}
+
             {/* Overall Result */}
             <div className={`mb-6 p-4 rounded-lg border ${
-              selectedZkpResult.overallResult
+              selectedZkpResult.overallResult === 'verified'
                 ? 'bg-green-50 border-green-300'
+                : selectedZkpResult.overallResult === 'partial'
+                ? 'bg-blue-50 border-blue-300'
                 : 'bg-yellow-50 border-yellow-300'
             }`}>
               <div className="flex justify-between items-center">
                 <span className="text-sm font-semibold text-gray-700">Overall ZKP Result</span>
                 <span className={`px-4 py-1.5 rounded-full text-sm font-bold ${
-                  selectedZkpResult.overallResult
+                  selectedZkpResult.overallResult === 'verified'
                     ? 'bg-green-500 text-white'
+                    : selectedZkpResult.overallResult === 'partial'
+                    ? 'bg-blue-500 text-white'
                     : 'bg-yellow-500 text-white'
                 }`}>
-                  {selectedZkpResult.overallResult ? 'Verified' : 'Pending'}
+                  {selectedZkpResult.overallResult === 'verified' ? 'Verified' :
+                   selectedZkpResult.overallResult === 'partial' ? 'Partial' : 'Pending'}
                 </span>
               </div>
             </div>

@@ -789,7 +789,7 @@ export default function Signup() {
         <div className="py-20 px-4">
           <div className="container mx-auto max-w-5xl">
             <div className="text-center mb-16">
-              <h1 className="text-4xl font-bold text-gray-900 mb-4">Get started with SRVS</h1>
+              <h1 className="text-4xl font-bold text-gray-900 mb-4">Get started with Quidinsights</h1>
               <p className="text-xl text-gray-600">Select your role and create your account</p>
             </div>
 

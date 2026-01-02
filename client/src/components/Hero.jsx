@@ -15,7 +15,7 @@ export default function Hero() {
         </h2>
         
         <p className="text-gray-600 text-lg mb-10 max-w-2xl mx-auto">
-          SRVS uses Zero-Knowledge Proofs to verify respondent attributes while keeping their personal data completely private. GDPR & CCPA compliant by design.
+          Quidinsights uses Zero-Knowledge Proofs to verify respondent attributes while keeping their personal data completely private. GDPR & CCPA compliant by design.
         </p>
         
         <div className="flex flex-col sm:flex-row gap-4 justify-center">

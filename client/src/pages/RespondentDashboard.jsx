@@ -218,10 +218,10 @@ export default function RespondentDashboard() {
   };
 
   const menuItems = [
-    { id: 'profile', label: 'My Profile', icon: '👤' },
-    { id: 'attributes', label: 'Verified Attributes', icon: '🏆' },
-    { id: 'consent', label: 'Consent Settings', icon: '🔒' },
-    { id: 'history', label: 'Verification History', icon: '🕐' },
+    { id: 'profile', label: 'My Profile' },
+    { id: 'attributes', label: 'Verified Attributes' },
+    { id: 'consent', label: 'Consent Settings' },
+    { id: 'history', label: 'Verification History' },
   ];
 
   return (
@@ -231,12 +231,11 @@ export default function RespondentDashboard() {
         {/* Logo */}
         <div className="p-6 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-full flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <span className="font-bold text-xl text-gray-900">SRVS</span>
+            <img
+              src="/quidinsights-logo.png"
+              alt="Quidinsights"
+              className="h-12"
+            />
           </div>
         </div>
 
@@ -250,13 +249,12 @@ export default function RespondentDashboard() {
               <li key={item.id}>
                 <button
                   onClick={() => setActiveTab(item.id)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition ${
+                  className={`w-full flex items-center px-4 py-3 rounded-lg text-left transition ${
                     activeTab === item.id
                       ? 'bg-emerald-50 text-emerald-700 font-medium'
                       : 'text-gray-600 hover:bg-gray-50'
                   }`}
                 >
-                  <span className="text-lg">{item.icon}</span>
                   <span>{item.label}</span>
                 </button>
               </li>
@@ -270,13 +268,12 @@ export default function RespondentDashboard() {
             <li>
               <button
                 onClick={() => setActiveTab('settings')}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition ${
+                className={`w-full flex items-center px-4 py-3 rounded-lg text-left transition ${
                   activeTab === 'settings'
                     ? 'bg-emerald-50 text-emerald-700 font-medium'
                     : 'text-gray-600 hover:bg-gray-50'
                 }`}
               >
-                <span className="text-lg">⚙️</span>
                 <span>Settings</span>
               </button>
             </li>

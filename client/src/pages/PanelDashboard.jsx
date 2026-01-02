@@ -434,16 +434,16 @@ export default function PanelDashboard() {
   };
 
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: '📊', path: '/dashboard/panel' },
-    { id: 'panelists', label: 'Manage Proofs', icon: '👥',  path: '/dashboard/panel/panelists' },
-    { id: 'proof-requests', label: 'Proof Requests', icon: '✓' },
-    { id: 'api-logs', label: 'API Logs', icon: '📝' },
-    { id: 'reports', label: 'Reports', icon: '📈' },
+    { id: 'dashboard', label: 'Dashboard', path: '/dashboard/panel' },
+    { id: 'panelists', label: 'Manage Proofs', path: '/dashboard/panel/panelists' },
+    { id: 'proof-requests', label: 'Proof Requests' },
+    { id: 'api-logs', label: 'API Logs' },
+    { id: 'reports', label: 'Reports' },
   ];
 
   const settingsItems = [
-    { id: 'settings', label: 'Settings', icon: '⚙️' },
-    { id: 'api-settings', label: 'API Settings', icon: '🔌' },
+    { id: 'settings', label: 'Settings' },
+    { id: 'api-settings', label: 'API Settings' },
   ];
 
   const recentRequests = [
@@ -469,10 +469,11 @@ export default function PanelDashboard() {
         {/* Logo */}
         <div className="p-6 border-b border-gray-200 flex-shrink-0">
           <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/')}>
-            <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold">✓</span>
-            </div>
-            <span className="font-bold text-lg text-gray-900">SRVS</span>
+            <img
+              src="/quidinsights-logo.png"
+              alt="Quidinsights"
+              className="h-12"
+            />
           </div>
           <span className="text-xs text-green-600 font-semibold mt-2 inline-block bg-green-50 px-2 py-1 rounded">
             Panel
@@ -496,10 +497,7 @@ export default function PanelDashboard() {
                     : 'text-gray-700 hover:bg-gray-50'
                 }`}
               >
-                <div className="flex items-center gap-3">
-                  <span className="text-lg">{item.icon}</span>
-                  <span className="font-medium">{item.label}</span>
-                </div>
+                <span className="font-medium">{item.label}</span>
                 {item.badge && (
                   <span className="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded">
                     {item.badge}
@@ -516,13 +514,12 @@ export default function PanelDashboard() {
               <button
                 key={item.id}
                 onClick={() => setActiveMenu(item.id)}
-                className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg transition ${
+                className={`w-full flex items-center px-4 py-2 rounded-lg transition ${
                   activeMenu === item.id
                     ? 'bg-purple-50 text-purple-600'
                     : 'text-gray-700 hover:bg-gray-50'
                 }`}
               >
-                <span className="text-lg">{item.icon}</span>
                 <span className="font-medium">{item.label}</span>
               </button>
             ))}
@@ -615,35 +612,19 @@ export default function PanelDashboard() {
           {/* Stats Grid */}
           <div className="grid grid-cols-3 gap-6 mb-8">
             <div className="bg-white rounded-lg p-6 border border-gray-200">
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <p className="text-gray-600 text-sm font-medium">Total Panelists</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-2">125,432</p>
-                </div>
-                <span className="text-2xl">👥</span>
-              </div>
+              <p className="text-gray-600 text-sm font-medium">Total Panelists</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">125,432</p>
             </div>
 
             <div className="bg-white rounded-lg p-6 border border-gray-200">
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <p className="text-gray-600 text-sm font-medium">Verified Rate</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-2">98.2%</p>
-                </div>
-                <span className="text-2xl">✓</span>
-              </div>
+              <p className="text-gray-600 text-sm font-medium">Verified Rate</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">98.2%</p>
             </div>
 
             <div className="bg-white rounded-lg p-6 border border-gray-200">
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <p className="text-gray-600 text-sm font-medium">Proof Requests</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-2">12,456</p>
-                </div>
-                <span className="text-2xl">🛡️</span>
-              </div>
+              <p className="text-gray-600 text-sm font-medium">Proof Requests</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">12,456</p>
             </div>
-
           </div>
 
           {/* Recent Verification Requests */}

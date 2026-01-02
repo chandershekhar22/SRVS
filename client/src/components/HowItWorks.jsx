@@ -5,7 +5,7 @@ export default function HowItWorks() {
     {
       number: '01',
       title: 'Connect Your Panel',
-      description: 'Integrate via API or batch upload. Map your data fields to SRVS attributes in minutes.'
+      description: 'Integrate via API or batch upload. Map your data fields to Quidinsights attributes in minutes.'
     },
     {
       number: '02',

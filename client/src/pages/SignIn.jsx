@@ -75,7 +75,7 @@ export default function SignIn() {
           <div className="bg-white rounded-xl shadow-lg p-8">
             <div className="mb-8">
               <h2 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h2>
-              <p className="text-gray-600">Sign in to your SRVS account</p>
+              <p className="text-gray-600">Sign in to your Quidinsights account</p>
             </div>
 
             {/* Info Banner */}
