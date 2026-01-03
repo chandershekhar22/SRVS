@@ -750,15 +750,6 @@ export default function InsightDashboard() {
                     )}
                   </button>
 
-                  {/* Download template button */}
-                  <button
-                    onClick={downloadExcelTemplate}
-                    className="w-full px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition text-sm flex items-center justify-center gap-2"
-                  >
-                    <span>📥</span>
-                    Download Template
-                  </button>
-
                   {/* Excel status message */}
                   {excelStatus && (
                     <p className={`mt-2 text-xs font-medium ${

@@ -39,7 +39,13 @@ export default function PanelDashboard() {
       setApiKey(savedApiKey);
     }
     if (savedPanelApiUrl) {
-      setPanelApiUrl(savedPanelApiUrl);
+      // Clean the URL - remove whitespace and trailing slashes
+      const cleanUrl = savedPanelApiUrl.trim().replace(/\/+$/, '');
+      setPanelApiUrl(cleanUrl);
+      // Also update localStorage with clean URL
+      if (cleanUrl !== savedPanelApiUrl) {
+        localStorage.setItem('panelApiUrl', cleanUrl);
+      }
     }
 
     // Load last sync time
@@ -63,7 +69,8 @@ export default function PanelDashboard() {
 
   const checkConnection = async (url) => {
     try {
-      const response = await fetch(`${url}/health`);
+      const cleanUrl = url.trim().replace(/\/+$/, '');
+      const response = await fetch(`${cleanUrl}/health`);
       if (response.ok) {
         setConnectionStatus('connected');
       } else {
@@ -98,9 +105,12 @@ export default function PanelDashboard() {
     setSyncing(true);
     if (!silent) setSyncStatus('Connecting to Panel API...');
 
+    // Clean the URL before using
+    const cleanUrl = panelApiUrl.trim().replace(/\/+$/, '');
+
     try {
       // Call the Panel API directly (mock or real)
-      const response = await fetch(`${panelApiUrl}/api/sync`, {
+      const response = await fetch(`${cleanUrl}/api/sync`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -152,7 +162,7 @@ export default function PanelDashboard() {
         }
 
         if (!silent) {
-          setSyncStatus(`Synced ${data.dataPoints?.respondentsAdded || 0} respondents from ${panelApiUrl}`);
+          setSyncStatus(`Synced ${data.dataPoints?.respondentsAdded || 0} respondents from ${cleanUrl}`);
           setTimeout(() => setSyncStatus(''), 4000);
         }
         setSyncing(false);
@@ -164,7 +174,7 @@ export default function PanelDashboard() {
     } catch (error) {
       setConnectionStatus('disconnected');
       if (!silent) {
-        setSyncStatus(`Cannot connect to ${panelApiUrl}. Is the server running?`);
+        setSyncStatus(`Cannot connect to ${cleanUrl}. Is the server running?`);
         setTimeout(() => setSyncStatus(''), 5000);
       }
       setSyncing(false);
@@ -750,15 +760,6 @@ export default function PanelDashboard() {
                         Upload Excel File
                       </>
                     )}
-                  </button>
-
-                  {/* Download template button */}
-                  <button
-                    onClick={downloadExcelTemplate}
-                    className="w-full px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition text-sm flex items-center justify-center gap-2"
-                  >
-                    <span>📥</span>
-                    Download Template
                   </button>
 
                   {/* Excel status message */}

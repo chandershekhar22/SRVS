@@ -43,8 +43,10 @@ export default function APISettings({ isOpen, onClose, onSave, storageKeyPrefix 
     setConnectionStatus(null);
     setMessage('Testing connection...');
 
+    const cleanUrl = panelApiUrl.trim().replace(/\/+$/, ''); // Remove whitespace and trailing slashes
+
     try {
-      const response = await fetch(`${panelApiUrl}/health`, {
+      const response = await fetch(`${cleanUrl}/health`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json'
@@ -74,15 +76,17 @@ export default function APISettings({ isOpen, onClose, onSave, storageKeyPrefix 
     }
 
     setLoading(true);
+    // Clean the URL before saving - remove whitespace and trailing slashes
+    const cleanUrl = panelApiUrl.trim().replace(/\/+$/, '');
     // Save to localStorage with prefix
     localStorage.setItem(apiKeyStorageKey, apiKey);
-    localStorage.setItem(apiUrlStorageKey, panelApiUrl);
+    localStorage.setItem(apiUrlStorageKey, cleanUrl);
 
     setTimeout(() => {
       setLoading(false);
       setMessage('Settings saved successfully!');
       setTimeout(() => {
-        onSave({ apiKey, panelApiUrl });
+        onSave({ apiKey, panelApiUrl: cleanUrl });
         onClose();
       }, 1000);
     }, 500);
@@ -119,7 +123,7 @@ export default function APISettings({ isOpen, onClose, onSave, storageKeyPrefix 
               value={panelApiUrl}
               onChange={(e) => setPanelApiUrl(e.target.value)}
               className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500 font-mono text-sm"
-              placeholder="http://localhost:3001"
+              placeholder="https://srvs-mockapi.onrender.com"
             />
             <button
               onClick={testConnection}
@@ -144,7 +148,7 @@ export default function APISettings({ isOpen, onClose, onSave, storageKeyPrefix 
             </button>
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            Enter the URL of your panel provider API (e.g., http://localhost:3001 for mock API)
+            Enter the URL of your panel provider API
           </p>
         </div>
 
@@ -180,15 +184,15 @@ export default function APISettings({ isOpen, onClose, onSave, storageKeyPrefix 
           </div>
         </div>
 
-        {/* Quick Setup Info */}
+        {/* Mock API Info */}
         <div className="mb-6 p-4 bg-purple-50 rounded-lg border border-purple-200">
-          <p className="text-sm font-semibold text-purple-800 mb-2">Quick Setup (Mock API)</p>
-          <ol className="text-xs text-purple-700 space-y-1">
-            <li>1. Run: <code className="bg-purple-100 px-1 rounded">cd mock-api && npm start</code></li>
-            <li>2. Enter URL: <code className="bg-purple-100 px-1 rounded">http://localhost:3001</code></li>
-            <li>3. Click "Test" to verify connection</li>
-            <li>4. Generate or enter an API key</li>
-          </ol>
+          <p className="text-sm font-semibold text-purple-800 mb-2">Mock API</p>
+          <p className="text-xs text-purple-700 mb-2">
+            Use our hosted mock API for testing:
+          </p>
+          <code className="block bg-purple-100 px-3 py-2 rounded text-sm text-purple-800 font-mono">
+            https://srvs-mockapi.onrender.com
+          </code>
         </div>
 
         <div className="flex gap-3">
