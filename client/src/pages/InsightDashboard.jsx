@@ -90,12 +90,12 @@ export default function InsightDashboard() {
     }
 
     if (!panelApiUrl) {
-      if (!silent) setSyncStatus('Please configure Panel API URL first');
+      if (!silent) setSyncStatus('Please configure Client API URL first');
       return;
     }
 
     setSyncing(true);
-    if (!silent) setSyncStatus('Connecting to Panel API...');
+    if (!silent) setSyncStatus('Connecting to Client API...');
 
     try {
       const response = await fetch(`${panelApiUrl}/api/sync`, {
@@ -687,9 +687,9 @@ export default function InsightDashboard() {
                     <span className="font-semibold text-gray-900 text-sm">API Integration</span>
                   </div>
 
-                  {/* Panel API URL */}
+                  {/* Client API URL */}
                   <div className="mb-2">
-                    <label className="text-xs text-gray-500">Panel API URL</label>
+                    <label className="text-xs text-gray-500">Client API URL</label>
                     <div className="p-2 bg-gray-50 rounded text-xs font-mono text-gray-700 truncate border border-gray-200">
                       {panelApiUrl || 'Not configured'}
                     </div>

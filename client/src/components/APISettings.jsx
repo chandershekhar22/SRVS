@@ -94,11 +94,15 @@ export default function APISettings({ isOpen, onClose, onSave, storageKeyPrefix 
 
   if (!isOpen) return null;
 
+  // Determine if this is for Insight or Panel based on storage prefix
+  const isInsight = storageKeyPrefix === 'insight';
+  const apiLabel = isInsight ? 'Client API' : 'Panel API';
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-xl shadow-2xl p-8 max-w-lg w-full mx-4">
         <h2 className="text-2xl font-bold text-gray-900 mb-2">API Settings</h2>
-        <p className="text-gray-600 text-sm mb-6">Configure your panel API connection</p>
+        <p className="text-gray-600 text-sm mb-6">Configure your {apiLabel.toLowerCase()} connection</p>
 
         {message && (
           <div className={`mb-4 p-3 rounded-lg text-sm font-medium ${
@@ -112,10 +116,10 @@ export default function APISettings({ isOpen, onClose, onSave, storageKeyPrefix 
           </div>
         )}
 
-        {/* Panel API URL */}
+        {/* API URL */}
         <div className="mb-6">
           <label className="block text-sm font-semibold text-gray-900 mb-2">
-            Panel API URL
+            {apiLabel} URL
           </label>
           <div className="flex gap-2">
             <input
@@ -148,7 +152,7 @@ export default function APISettings({ isOpen, onClose, onSave, storageKeyPrefix 
             </button>
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            Enter the URL of your panel provider API
+            Enter the URL of your {isInsight ? 'client' : 'panel'} provider API
           </p>
         </div>
 
