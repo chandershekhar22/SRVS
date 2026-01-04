@@ -137,7 +137,23 @@ export default function RespondentDashboard() {
   };
 
   const handleLogout = () => {
+    // Get user-specific attributes key before clearing currentUser
+    const userKey = `respondentAttributes_${user.id || user.email || 'default'}`;
+
+    // Clear user session
     localStorage.removeItem('currentUser');
+    localStorage.removeItem('token');
+
+    // Clear user-specific attribute data to reset to defaults on next login
+    localStorage.removeItem(userKey);
+
+    // Clear verification-related data
+    localStorage.removeItem('attributesRequiringProof');
+    localStorage.removeItem('recommendedVerificationMethods');
+    localStorage.removeItem('showVerificationFlow');
+    localStorage.removeItem('linkedinVerificationSuccess');
+    localStorage.removeItem('pendingLinkedInVerification');
+
     navigate('/');
   };
 
