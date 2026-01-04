@@ -7,12 +7,13 @@ export default function Hero() {
       <div className="container mx-auto text-center max-w-4xl">
 
 
-        <h1 className="text-5xl md:text-6xl font-bold text-gray-900 mb-4">
-          Verify Survey Respondents
+        <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-gray-900 mb-4 leading-tight">
+          <span className="bg-gradient-to-r from-purple-600 to-purple-700 bg-clip-text text-transparent">TrueProof</span> uses{' '}
+          <span className="bg-gradient-to-r from-purple-500 via-blue-500 to-purple-600 bg-clip-text text-transparent">Zero-Knowledge Proofs</span>
         </h1>
 
-        <h2 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-purple-600 via-purple-500 to-blue-500 bg-clip-text text-transparent mb-6">
-          Without Compromising Privacy
+        <h2 className="text-2xl md:text-3xl lg:text-4xl font-semibold text-gray-700 mb-6">
+          to Verify Respondent Attributes
         </h2>
 
         <p className="text-gray-600 text-lg mb-10 max-w-2xl mx-auto">
