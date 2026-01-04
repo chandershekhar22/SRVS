@@ -13,6 +13,7 @@ import VerificationSuccess from './pages/VerificationSuccess';
 import LinkedInCallback from './pages/LinkedInCallback';
 import VerificationDashboard from './pages/VerificationDashboard';
 import VerifyDocument from './pages/VerifyDocument';
+import HowToGuide from './pages/HowToGuide';
 import './App.css';
 
 function App() {
@@ -33,6 +34,7 @@ function App() {
           <Route path="/auth/linkedin/callback" element={<LinkedInCallback />} />
           <Route path="/verification-dashboard" element={<VerificationDashboard />} />
           <Route path="/verify-document" element={<VerifyDocument />} />
+          <Route path="/how-to-guide" element={<HowToGuide />} />
         </Routes>
       </Router>
     </AutoSyncProvider>
