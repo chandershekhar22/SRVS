@@ -454,7 +454,7 @@ export default function RespondentDashboard() {
               <div>
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Your Attributes</h2>
                 <div className="grid grid-cols-2 gap-4">
-                  {attributes.slice(0, 6).map((attr, index) => (
+                  {attributes.map((attr, index) => (
                     <div
                       key={index}
                       onClick={() => handlePendingAttributeClick(attr)}
