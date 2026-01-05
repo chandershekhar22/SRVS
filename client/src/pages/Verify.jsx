@@ -134,12 +134,12 @@ export default function Verify() {
             </span>
           </div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            {tokenData?.isPartialVerification ? 'Welcome Back!' : 'Email Verified!'}
+            {tokenData?.isPartialVerification ? 'Welcome Back!' : 'Credentials Verified!'}
           </h1>
           <p className="text-gray-600">
             {tokenData?.isPartialVerification
               ? 'Complete your remaining verification to unlock full access'
-              : 'Your email has been successfully verified'}
+              : 'Your credentials have been successfully verified'}
           </p>
         </div>
 

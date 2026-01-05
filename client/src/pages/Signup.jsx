@@ -42,7 +42,7 @@ export default function Signup() {
     {
       id: 'panel',
       title: 'Panel Company',
-      description: 'Manage respondent panels and provide verified respondents for surveys',
+      description: 'Manage attributes verification of your community members',
       icon: '🏢',
       color: 'from-purple-600 to-purple-700'
     },
@@ -789,7 +789,7 @@ export default function Signup() {
         <div className="py-20 px-4">
           <div className="container mx-auto max-w-5xl">
             <div className="text-center mb-16">
-              <h1 className="text-4xl font-bold text-gray-900 mb-4">Get started with Quidinsights</h1>
+              <h1 className="text-4xl font-bold text-gray-900 mb-4">Get started with Trueproof</h1>
               <p className="text-xl text-gray-600">Select your role and create your account</p>
             </div>
 

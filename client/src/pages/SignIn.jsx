@@ -75,7 +75,7 @@ export default function SignIn() {
           <div className="bg-white rounded-xl shadow-lg p-8">
             <div className="mb-8">
               <h2 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h2>
-              <p className="text-gray-600">Sign in to your Quidinsights account</p>
+              <p className="text-gray-600">Sign in to your Trueproof account</p>
             </div>
 
             {/* Info Banner */}
@@ -149,21 +149,11 @@ export default function SignIn() {
               </a>
             </p>
 
-            {/* Email Verification Info */}
-            <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-xs text-blue-700">
-                <strong>Received a verification email?</strong><br />
-                Click the link in your email to complete the one-time verification process.
-                No account creation or sign-in is needed for email-verified respondents.
-              </p>
-            </div>
+           
           </div>
 
           {/* Demo Info */}
-          <div className="mt-8 p-4 bg-blue-50 border border-blue-200 rounded-lg text-blue-700 text-sm">
-            <p className="font-semibold mb-2">Demo Credentials:</p>
-            <p>Sign in with an email from a previously created Panel, Insight, or Respondent account.</p>
-          </div>
+         
         </div>
       </div>
     </div>

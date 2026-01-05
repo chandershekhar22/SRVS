@@ -8,16 +8,15 @@ export default function Hero() {
 
 
         <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-gray-900 mb-4 leading-tight">
-          <span className="bg-gradient-to-r from-purple-600 to-purple-700 bg-clip-text text-transparent">TrueProof</span> uses{' '}
-          <span className="bg-gradient-to-r from-purple-500 via-blue-500 to-purple-600 bg-clip-text text-transparent">Zero-Knowledge Proofs</span>
+          Verify Survey Respondents
         </h1>
 
-        <h2 className="text-2xl md:text-3xl lg:text-4xl font-semibold text-gray-700 mb-6">
-          to Verify Respondent Attributes
+        <h2 className="text-2xl md:text-3xl lg:text-4xl font-semibold mb-6 italic">
+          <span className="bg-gradient-to-r from-purple-500 via-blue-500 to-purple-600 bg-clip-text text-transparent">Without Compromising Privacy</span>
         </h2>
 
         <p className="text-gray-600 text-lg mb-10 max-w-2xl mx-auto">
-          Quidinsights uses TrueProofs to verify respondent attributes while keeping their personal data completely private. GDPR & CCPA compliant by design.
+          Trueproof uses Zero-Knowledge proofs to verify respondent attributes while keeping their personal data completely private. GDPR & CCPA compliant by design.
         </p>
 
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
