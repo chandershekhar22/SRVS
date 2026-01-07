@@ -858,19 +858,27 @@ export default function Signup() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-900 mb-2">Password</label>
-                  <input
-                    type="password"
-                    name="password"
-                    value={formData.password}
-                    onChange={handleInputChange}
-                    placeholder="••••••••"
-                    minLength={6}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Must be at least 6 characters</p>
-                </div>
+               <div>
+  <label className="block text-sm font-medium text-gray-900 mb-2">
+    Password
+  </label>
+
+  <input
+    type="password"
+    name="password"
+    value={formData.password}
+    onChange={handleInputChange}
+    placeholder="••••••••"
+    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500"
+  />
+
+  {formData.password.length > 0 && formData.password.length < 6 && (
+    <p className="text-xs text-red-500 mt-1">
+      Must be at least 6 characters
+    </p>
+  )}
+</div>
+
 
                 <div>
                   <label className="block text-sm font-medium text-gray-900 mb-2">Confirm Password</label>
